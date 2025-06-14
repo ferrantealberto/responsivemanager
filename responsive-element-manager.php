@@ -2,10 +2,14 @@
 /**
  * Plugin Name: Responsive Element Manager
  * Plugin URI: https://yoursite.com/plugins/responsive-element-manager
- * Description: Gestisce il comportamento responsive degli elementi del sito in tempo reale
- * Version: 1.0.0
+ * Description: Gestisce il comportamento responsive degli elementi del sito in tempo reale con controlli avanzati
+ * Version: 1.1.0
  * Author: Your Name
  * License: GPL v2 or later
+ * Text Domain: responsive-element-manager
+ * Requires at least: 5.0
+ * Tested up to: 6.4
+ * Requires PHP: 7.4
  */
 
 // Impedisce l'accesso diretto
@@ -14,16 +18,19 @@ if (!defined('ABSPATH')) {
 }
 
 // Definisce le costanti del plugin
+define('REM_VERSION', '1.1.0');
 define('REM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('REM_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('REM_VERSION', '1.0.0');
+define('REM_PLUGIN_BASENAME', plugin_basename(__FILE__));
+define('REM_DB_VERSION', '1.1');
 
 /**
- * Classe principale del plugin
+ * Classe principale del plugin Responsive Element Manager
  */
 class ResponsiveElementManager {
     
     private static $instance = null;
+    private $modules = array();
     
     public static function get_instance() {
         if (null === self::$instance) {
@@ -34,34 +41,135 @@ class ResponsiveElementManager {
     
     private function __construct() {
         add_action('init', array($this, 'init'));
-    }
-    
-    public function init() {
-        // Le classi sono definite in questo stesso file
-        // Non servono require_once esterni
+        add_action('plugins_loaded', array($this, 'load_textdomain'));
         
-        // Hooks di attivazione/disattivazione
+        // Hook di attivazione/disattivazione
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
+    }
+    
+    /**
+     * Inizializzazione del plugin
+     */
+    public function init() {
+        // Verifica versione PHP
+        if (version_compare(PHP_VERSION, '7.4', '<')) {
+            add_action('admin_notices', array($this, 'php_version_notice'));
+            return;
+        }
+        
+        // Carica i moduli
+        $this->load_modules();
         
         // Aggiunge le azioni WordPress
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_scripts'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+        add_action('admin_menu', array($this, 'add_admin_menu'));
+        add_action('wp_head', array($this, 'output_custom_css'));
+        
+        // AJAX Endpoints
         add_action('wp_ajax_rem_save_rule', array($this, 'ajax_save_rule'));
         add_action('wp_ajax_rem_delete_rule', array($this, 'ajax_delete_rule'));
         add_action('wp_ajax_rem_get_rules', array($this, 'ajax_get_rules'));
-        add_action('wp_head', array($this, 'output_custom_css'));
-        add_action('admin_menu', array($this, 'add_admin_menu'));
+        add_action('wp_ajax_rem_export_rules', array($this, 'ajax_export_rules'));
+        add_action('wp_ajax_rem_import_rules', array($this, 'ajax_import_rules'));
+        add_action('wp_ajax_rem_get_element_info', array($this, 'ajax_get_element_info'));
         
-        // Hook per estensioni future
+        // Hook per estensioni
         do_action('rem_loaded', $this);
+        
+        // Verifica aggiornamenti database
+        $this->check_database_updates();
+    }
+    
+    /**
+     * Carica la traduzione
+     */
+    public function load_textdomain() {
+        load_plugin_textdomain(
+            'responsive-element-manager',
+            false,
+            dirname(REM_PLUGIN_BASENAME) . '/languages'
+        );
+    }
+    
+    /**
+     * Carica i moduli del plugin
+     */
+    private function load_modules() {
+        // Directory moduli
+        $modules_dir = REM_PLUGIN_PATH . 'modules/';
+        
+        if (!is_dir($modules_dir)) {
+            wp_mkdir_p($modules_dir);
+        }
+        
+        // Carica moduli core (se esistono file separati)
+        $core_modules = array(
+            'includes/class-rem-database.php',
+            'includes/class-rem-css-generator.php',
+            'includes/class-rem-rule-manager.php',
+            'includes/class-rem-config.php'
+        );
+        
+        foreach ($core_modules as $module) {
+            $file_path = REM_PLUGIN_PATH . $module;
+            if (file_exists($file_path)) {
+                require_once $file_path;
+            }
+        }
+        
+        // Carica moduli aggiuntivi dalla directory modules/
+        if (is_dir($modules_dir)) {
+            $module_files = glob($modules_dir . '*.php');
+            
+            foreach ($module_files as $file) {
+                if (is_readable($file)) {
+                    require_once $file;
+                    
+                    $module_name = basename($file, '.php');
+                    $this->modules[$module_name] = array(
+                        'file' => $file,
+                        'loaded' => true,
+                        'loaded_at' => current_time('mysql')
+                    );
+                }
+            }
+        }
+        
+        // Hook per moduli personalizzati
+        do_action('rem_modules_loaded', $this->modules);
     }
     
     /**
      * Attivazione del plugin
      */
     public function activate() {
+        // Crea/aggiorna tabelle database
         REM_Database::create_tables();
+        REM_Database::upgrade_tables();
+        
+        // Imposta opzioni predefinite
+        $default_settings = array(
+            'enable_frontend_editor' => true,
+            'enable_admin_bar_menu' => true,
+            'auto_save_changes' => false,
+            'load_on_all_pages' => true,
+            'minimum_user_capability' => 'edit_posts',
+            'enable_css_minification' => false,
+            'enable_backup_system' => true,
+            'max_rules_per_page' => 1000
+        );
+        
+        add_option('rem_settings', $default_settings);
+        add_option('rem_version', REM_VERSION);
+        add_option('rem_db_version', REM_DB_VERSION);
+        add_option('rem_activated_at', current_time('mysql'));
+        
+        // Flush rewrite rules
+        flush_rewrite_rules();
+        
+        // Hook per estensioni
         do_action('rem_activate');
     }
     
@@ -69,6 +177,11 @@ class ResponsiveElementManager {
      * Disattivazione del plugin
      */
     public function deactivate() {
+        // Pulisci i cron job
+        wp_clear_scheduled_hook('rem_cleanup_database');
+        wp_clear_scheduled_hook('rem_backup_rules');
+        
+        // Hook per estensioni
         do_action('rem_deactivate');
     }
     
@@ -76,21 +189,24 @@ class ResponsiveElementManager {
      * Carica gli script frontend
      */
     public function enqueue_frontend_scripts() {
-        // DEBUG: Verifica permessi utente
-        add_action('wp_footer', function() {
-            if (current_user_can('edit_posts')) {
-                echo '<div style="position:fixed;top:10px;left:10px;background:green;color:white;padding:10px;z-index:99999;">USER CAN EDIT: YES</div>';
-            } else {
-                echo '<div style="position:fixed;top:10px;left:10px;background:red;color:white;padding:10px;z-index:99999;">USER CAN EDIT: NO - LOGIN AS ADMIN</div>';
-            }
-        });
+        // Verifica permessi utente
+        $settings = get_option('rem_settings', array());
+        $min_capability = $settings['minimum_user_capability'] ?? 'edit_posts';
         
-        // FORZA caricamento sempre (per debug)
+        if (!current_user_can($min_capability)) {
+            return;
+        }
+        
+        // Verifica se caricare su questa pagina
+        if (!$this->should_load_on_current_page()) {
+            return;
+        }
+        
         wp_enqueue_script(
             'rem-frontend',
             REM_PLUGIN_URL . 'assets/js/frontend.js',
             array('jquery'),
-            REM_VERSION . '-' . time(), // Cache busting
+            REM_VERSION,
             true
         );
         
@@ -98,370 +214,177 @@ class ResponsiveElementManager {
             'rem-frontend',
             REM_PLUGIN_URL . 'assets/css/frontend.css',
             array(),
-            REM_VERSION . '-' . time() // Cache busting
+            REM_VERSION
         );
         
+        // Localizza script con dati necessari
         wp_localize_script('rem-frontend', 'rem_ajax', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('rem_nonce'),
-            'current_post_id' => get_the_ID()
+            'current_post_id' => get_the_ID(),
+            'plugin_url' => REM_PLUGIN_URL,
+            'settings' => $this->get_frontend_settings(),
+            'breakpoints' => $this->get_breakpoints(),
+            'user_preferences' => $this->get_user_preferences()
         ));
         
-        // PULSANTE EDITOR REALE
-        if (current_user_can('edit_posts')) {
-            add_action('wp_footer', function() {
-                echo '
-                <!-- Responsive Element Manager Editor -->
-                <div id="rem-toggle-btn" style="
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    width: 50px;
-                    height: 50px;
-                    background: #0073aa;
-                    color: white;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    z-index: 999999;
-                    font-size: 20px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-                    transition: all 0.3s ease;
-                    border: none;
-                    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-                " title="Attiva/Disattiva Editor Responsive">📱</div>
-
-                <!-- Modal Editor -->
-                <div id="rem-modal" style="
-                    display: none;
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background: rgba(0,0,0,0.5);
-                    z-index: 1000000;
-                    overflow-y: auto;
-                ">
-                    <div style="
-                        background: white;
-                        width: 90%;
-                        max-width: 600px;
-                        margin: 50px auto;
-                        border-radius: 8px;
-                        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-                        animation: slideIn 0.3s ease;
-                    ">
-                        <div style="padding: 20px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
-                            <h3 style="margin: 0; color: #333;">Configurazione Elemento Responsive</h3>
-                            <span id="rem-close" style="font-size: 24px; cursor: pointer; color: #999;">&times;</span>
-                        </div>
-                        <div style="padding: 20px;">
-                            <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-                                <p style="margin: 0;"><strong>Elemento selezionato:</strong> <span id="rem-selected-info">Nessuno</span></p>
-                            </div>
-                            
-                            <div style="margin-bottom: 20px;">
-                                <label style="display: block; margin-bottom: 8px; font-weight: 600;">Applica modifiche a:</label>
-                                <select id="rem-scope" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                                    <option value="page">Solo questa pagina</option>
-                                    <option value="site">Tutto il sito</option>
-                                </select>
-                            </div>
-                            
-                            <div style="border-bottom: 1px solid #ddd; margin-bottom: 20px;">
-                                <div style="display: flex;">
-                                    <button class="rem-tab-btn active" data-breakpoint="mobile" style="background: none; border: none; padding: 12px 20px; cursor: pointer; border-bottom: 2px solid #0073aa;">📱 Mobile</button>
-                                    <button class="rem-tab-btn" data-breakpoint="tablet" style="background: none; border: none; padding: 12px 20px; cursor: pointer; border-bottom: 2px solid transparent;">📟 Tablet</button>
-                                    <button class="rem-tab-btn" data-breakpoint="desktop" style="background: none; border: none; padding: 12px 20px; cursor: pointer; border-bottom: 2px solid transparent;">🖥️ Desktop</button>
-                                </div>
-                            </div>
-                            
-                            <div id="rem-breakpoint-content">
-                                <div class="rem-tab-panel active" data-breakpoint="mobile">
-                                    <div style="display: flex; gap: 20px; margin-bottom: 15px;">
-                                        <div style="flex: 1;">
-                                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Dimensione Font:</label>
-                                            <div style="display: flex; gap: 10px;">
-                                                <input type="number" id="font-size-mobile" placeholder="24" style="flex: 2; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                                                <select id="font-unit-mobile" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                                                    <option value="px">px</option>
-                                                    <option value="%">%</option>
-                                                    <option value="em">em</option>
-                                                    <option value="rem">rem</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                        <div style="flex: 1;">
-                                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">Allineamento:</label>
-                                            <select id="text-align-mobile" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                                                <option value="">-- Mantieni originale --</option>
-                                                <option value="left">Sinistra</option>
-                                                <option value="center">Centro</option>
-                                                <option value="right">Destra</option>
-                                                <option value="justify">Giustificato</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div style="padding: 20px; border-top: 1px solid #ddd; display: flex; gap: 10px; justify-content: flex-end;">
-                            <button id="rem-save" style="background: #0073aa; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Salva Regole</button>
-                            <button id="rem-cancel" style="background: #f3f4f5; color: #333; border: 1px solid #ddd; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Annulla</button>
-                        </div>
-                    </div>
-                </div>
-
-                <style>
-                @keyframes slideIn {
-                    from { opacity: 0; transform: translateY(-20px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-                
-                #rem-toggle-btn:hover {
-                    background: #005177 !important;
-                    transform: scale(1.05);
-                }
-                
-                #rem-toggle-btn.active {
-                    background: #dc3232 !important;
-                }
-                
-                .rem-tab-btn:hover {
-                    background: #f8f9fa !important;
-                }
-                
-                .rem-tab-btn.active {
-                    color: #0073aa !important;
-                    border-bottom-color: #0073aa !important;
-                }
-                
-                body.rem-selecting {
-                    cursor: crosshair !important;
-                }
-                
-                body.rem-selecting * {
-                    cursor: crosshair !important;
-                }
-                
-                .rem-highlight {
-                    outline: 2px solid #0073aa !important;
-                    outline-offset: 2px !important;
-                }
-                
-                .rem-selected {
-                    outline: 3px solid #dc3232 !important;
-                    outline-offset: 2px !important;
-                    background: rgba(220, 50, 50, 0.1) !important;
-                }
-                </style>
-
-                <script>
-                document.addEventListener("DOMContentLoaded", function() {
-                    let isActive = false;
-                    let selectedElement = null;
-                    
-                    const toggleBtn = document.getElementById("rem-toggle-btn");
-                    const modal = document.getElementById("rem-modal");
-                    const closeBtn = document.getElementById("rem-close");
-                    const cancelBtn = document.getElementById("rem-cancel");
-                    const saveBtn = document.getElementById("rem-save");
-                    
-                    // Toggle editor
-                    toggleBtn.addEventListener("click", function() {
-                        isActive = !isActive;
-                        
-                        if (isActive) {
-                            document.body.classList.add("rem-selecting");
-                            toggleBtn.classList.add("active");
-                            toggleBtn.style.background = "#dc3232";
-                        } else {
-                            document.body.classList.remove("rem-selecting");
-                            toggleBtn.classList.remove("active");
-                            toggleBtn.style.background = "#0073aa";
-                            clearSelection();
-                        }
-                    });
-                    
-                    // Element selection
-                    document.addEventListener("click", function(e) {
-                        if (isActive && e.target !== toggleBtn && !modal.contains(e.target)) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            selectElement(e.target);
-                        }
-                    });
-                    
-                    // Hover effects
-                    document.addEventListener("mouseover", function(e) {
-                        if (isActive && e.target !== toggleBtn && !modal.contains(e.target)) {
-                            e.target.classList.add("rem-highlight");
-                        }
-                    });
-                    
-                    document.addEventListener("mouseout", function(e) {
-                        if (isActive) {
-                            e.target.classList.remove("rem-highlight");
-                        }
-                    });
-                    
-                    function selectElement(element) {
-                        clearSelection();
-                        selectedElement = element;
-                        element.classList.add("rem-selected");
-                        
-                        const selector = generateSelector(element);
-                        document.getElementById("rem-selected-info").textContent = selector;
-                        modal.style.display = "block";
-                    }
-                    
-                    function clearSelection() {
-                        document.querySelectorAll(".rem-selected, .rem-highlight").forEach(el => {
-                            el.classList.remove("rem-selected", "rem-highlight");
-                        });
-                        selectedElement = null;
-                    }
-                    
-                    function generateSelector(element) {
-                        if (element.id) {
-                            return "#" + element.id;
-                        } else if (element.className) {
-                            const classes = element.className.split(" ").filter(c => c && !c.startsWith("rem-"));
-                            if (classes.length > 0) {
-                                return "." + classes[0];
-                            }
-                        }
-                        return element.tagName.toLowerCase();
-                    }
-                    
-                    // Close modal
-                    [closeBtn, cancelBtn].forEach(btn => {
-                        btn.addEventListener("click", function() {
-                            modal.style.display = "none";
-                            clearSelection();
-                        });
-                    });
-                    
-                    // Save rule
-                    saveBtn.addEventListener("click", function() {
-                        if (!selectedElement) return;
-                        
-                        const fontSize = document.getElementById("font-size-mobile").value;
-                        const fontUnit = document.getElementById("font-unit-mobile").value;
-                        const textAlign = document.getElementById("text-align-mobile").value;
-                        const scope = document.getElementById("rem-scope").value;
-                        
-                        const selector = generateSelector(selectedElement);
-                        
-                        // Apply styles immediately
-                        if (fontSize) {
-                            selectedElement.style.fontSize = fontSize + fontUnit;
-                        }
-                        if (textAlign) {
-                            selectedElement.style.textAlign = textAlign;
-                        }
-                        
-                        // Here you would normally save to database via AJAX
-                        alert("Regola salvata! Selettore: " + selector + "\\nFont: " + fontSize + fontUnit + "\\nAllineamento: " + textAlign + "\\nScope: " + scope);
-                        
-                        modal.style.display = "none";
-                        clearSelection();
-                    });
-                });
-                </script>';
-            }, 999);
-        }
+        // Hook per moduli che vogliono aggiungere script
+        do_action('rem_frontend_enqueue_scripts');
     }
     
     /**
      * Carica gli script admin
      */
     public function enqueue_admin_scripts($hook) {
-        if (strpos($hook, 'responsive-elements') !== false) {
-            wp_enqueue_script(
-                'rem-admin',
-                REM_PLUGIN_URL . 'assets/js/admin.js',
-                array('jquery'),
-                REM_VERSION,
-                true
-            );
-            
-            wp_enqueue_style(
-                'rem-admin',
-                REM_PLUGIN_URL . 'assets/css/admin.css',
-                array(),
-                REM_VERSION
-            );
+        // Carica solo nelle pagine del plugin
+        if (strpos($hook, 'responsive-elements') === false) {
+            return;
         }
+        
+        wp_enqueue_script(
+            'rem-admin',
+            REM_PLUGIN_URL . 'assets/js/admin.js',
+            array('jquery', 'wp-color-picker'),
+            REM_VERSION,
+            true
+        );
+        
+        wp_enqueue_style(
+            'rem-admin',
+            REM_PLUGIN_URL . 'assets/css/admin.css',
+            array('wp-color-picker'),
+            REM_VERSION
+        );
+        
+        // Localizza script admin
+        wp_localize_script('rem-admin', 'remAdmin', array(
+            'nonce' => wp_create_nonce('rem_admin_nonce'),
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'plugin_url' => REM_PLUGIN_URL,
+            'modules' => $this->get_active_modules(),
+            'breakpoints' => $this->get_breakpoints(),
+            'settings' => get_option('rem_settings', array())
+        ));
+        
+        // Hook per moduli
+        do_action('rem_admin_enqueue_scripts', $hook);
     }
     
     /**
      * Aggiunge il menu admin
      */
     public function add_admin_menu() {
+        $settings = get_option('rem_settings', array());
+        $min_capability = $settings['minimum_user_capability'] ?? 'manage_options';
+        
+        // Menu principale
         add_menu_page(
-            'Responsive Elements',
-            'Responsive Elements',
-            'manage_options',
+            __('Responsive Elements', 'responsive-element-manager'),
+            __('Responsive Elements', 'responsive-element-manager'),
+            $min_capability,
             'responsive-elements',
-            array($this, 'admin_page'),
+            array($this, 'admin_page_dashboard'),
             'dashicons-smartphone',
             30
         );
+        
+        // Sottomenu
+        add_submenu_page(
+            'responsive-elements',
+            __('Dashboard', 'responsive-element-manager'),
+            __('Dashboard', 'responsive-element-manager'),
+            $min_capability,
+            'responsive-elements',
+            array($this, 'admin_page_dashboard')
+        );
+        
+        add_submenu_page(
+            'responsive-elements',
+            __('Regole', 'responsive-element-manager'),
+            __('Regole', 'responsive-element-manager'),
+            $min_capability,
+            'responsive-elements-rules',
+            array($this, 'admin_page_rules')
+        );
+        
+        add_submenu_page(
+            'responsive-elements',
+            __('Impostazioni', 'responsive-element-manager'),
+            __('Impostazioni', 'responsive-element-manager'),
+            $min_capability,
+            'responsive-elements-settings',
+            array($this, 'admin_page_settings')
+        );
+        
+        add_submenu_page(
+            'responsive-elements',
+            __('Moduli', 'responsive-element-manager'),
+            __('Moduli', 'responsive-element-manager'),
+            $min_capability,
+            'responsive-elements-modules',
+            array($this, 'admin_page_modules')
+        );
+        
+        // Hook per aggiungere pagine personalizzate
+        do_action('rem_admin_menu', $min_capability);
     }
     
     /**
-     * Pagina admin
+     * Pagina dashboard admin
      */
-    public function admin_page() {
-        echo '<div class="wrap"><h1>Responsive Element Manager</h1><p>Plugin attivo e funzionante!</p></div>';
+    public function admin_page_dashboard() {
+        include REM_PLUGIN_PATH . 'includes/admin-page.php';
     }
     
     /**
-     * AJAX: Salva regola
+     * Pagina regole admin
      */
-    public function ajax_save_rule() {
-        check_ajax_referer('rem_nonce', 'nonce');
-        
-        if (!current_user_can('edit_posts')) {
-            wp_die('Non autorizzato');
-        }
-        
-        $rule_data = $_POST['rule_data'];
-        $result = REM_Rule_Manager::save_rule($rule_data);
-        
-        wp_send_json($result);
+    public function admin_page_rules() {
+        include REM_PLUGIN_PATH . 'includes/admin-rules-list.php';
     }
     
     /**
-     * AJAX: Elimina regola
+     * Pagina impostazioni admin
      */
-    public function ajax_delete_rule() {
-        check_ajax_referer('rem_nonce', 'nonce');
-        
-        if (!current_user_can('edit_posts')) {
-            wp_die('Non autorizzato');
-        }
-        
-        $rule_id = intval($_POST['rule_id']);
-        $result = REM_Rule_Manager::delete_rule($rule_id);
-        
-        wp_send_json($result);
+    public function admin_page_settings() {
+        include REM_PLUGIN_PATH . 'includes/admin-settings.php';
     }
     
     /**
-     * AJAX: Ottieni regole
+     * Pagina moduli admin
      */
-    public function ajax_get_rules() {
-        check_ajax_referer('rem_nonce', 'nonce');
+    public function admin_page_modules() {
+        ?>
+        <div class="wrap">
+            <h1><?php _e('Moduli Responsive Element Manager', 'responsive-element-manager'); ?></h1>
+            
+            <div class="rem-modules-grid">
+                <?php foreach ($this->modules as $module_id => $module_data): ?>
+                    <div class="rem-module-card">
+                        <h3><?php echo esc_html(ucwords(str_replace('-', ' ', $module_id))); ?></h3>
+                        <p><strong><?php _e('File:', 'responsive-element-manager'); ?></strong> <?php echo esc_html(basename($module_data['file'])); ?></p>
+                        <p><strong><?php _e('Caricato:', 'responsive-element-manager'); ?></strong> <?php echo esc_html($module_data['loaded_at']); ?></p>
+                        <span class="rem-module-status rem-module-active"><?php _e('Attivo', 'responsive-element-manager'); ?></span>
+                    </div>
+                <?php endforeach; ?>
+                
+                <?php if (empty($this->modules)): ?>
+                    <div class="rem-no-modules">
+                        <p><?php _e('Nessun modulo aggiuntivo trovato.', 'responsive-element-manager'); ?></p>
+                        <p><?php _e('Aggiungi moduli nella directory:', 'responsive-element-manager'); ?> <code>modules/</code></p>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
         
-        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
-        $rules = REM_Rule_Manager::get_rules($post_id);
-        
-        wp_send_json_success($rules);
+        <style>
+        .rem-modules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
+        .rem-module-card { background: white; padding: 20px; border: 1px solid #ccd0d4; border-radius: 8px; }
+        .rem-module-status { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+        .rem-module-active { background: #d4edda; color: #155724; }
+        .rem-no-modules { grid-column: 1 / -1; text-align: center; padding: 40px; background: #f8f9fa; border-radius: 8px; }
+        </style>
+        <?php
     }
     
     /**
@@ -472,6 +395,254 @@ class ResponsiveElementManager {
         if (!empty($css)) {
             echo "<style id='rem-custom-css'>\n" . $css . "\n</style>\n";
         }
+        
+        // Hook per moduli che vogliono aggiungere CSS
+        do_action('rem_output_custom_css');
+    }
+    
+    /**
+     * AJAX: Salva regola
+     */
+    public function ajax_save_rule() {
+        check_ajax_referer('rem_nonce', 'nonce');
+        
+        $settings = get_option('rem_settings', array());
+        $min_capability = $settings['minimum_user_capability'] ?? 'edit_posts';
+        
+        if (!current_user_can($min_capability)) {
+            wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
+        }
+        
+        $rule_data = json_decode(stripslashes($_POST['rule_data'] ?? '{}'), true);
+        
+        if (empty($rule_data)) {
+            wp_send_json_error(__('Dati regola non validi', 'responsive-element-manager'));
+        }
+        
+        $result = REM_Rule_Manager::save_rule($rule_data);
+        
+        if (is_wp_error($result)) {
+            wp_send_json_error($result->get_error_message());
+        }
+        
+        wp_send_json_success($result);
+    }
+    
+    /**
+     * AJAX: Elimina regola
+     */
+    public function ajax_delete_rule() {
+        check_ajax_referer('rem_nonce', 'nonce');
+        
+        $settings = get_option('rem_settings', array());
+        $min_capability = $settings['minimum_user_capability'] ?? 'edit_posts';
+        
+        if (!current_user_can($min_capability)) {
+            wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
+        }
+        
+        $rule_id = intval($_POST['rule_id'] ?? 0);
+        
+        if ($rule_id <= 0) {
+            wp_send_json_error(__('ID regola non valido', 'responsive-element-manager'));
+        }
+        
+        $result = REM_Rule_Manager::delete_rule($rule_id);
+        
+        if (is_wp_error($result)) {
+            wp_send_json_error($result->get_error_message());
+        }
+        
+        wp_send_json_success($result);
+    }
+    
+    /**
+     * AJAX: Ottieni regole
+     */
+    public function ajax_get_rules() {
+        check_ajax_referer('rem_nonce', 'nonce');
+        
+        $post_id = intval($_POST['post_id'] ?? 0);
+        $rules = REM_Rule_Manager::get_rules($post_id);
+        
+        wp_send_json_success($rules);
+    }
+    
+    /**
+     * AJAX: Esporta regole
+     */
+    public function ajax_export_rules() {
+        check_ajax_referer('rem_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
+        }
+        
+        $format = sanitize_text_field($_POST['format'] ?? 'json');
+        $scope = sanitize_text_field($_POST['scope'] ?? 'all');
+        
+        $export_data = REM_Rule_Manager::export_rules($format, $scope);
+        
+        wp_send_json_success($export_data);
+    }
+    
+    /**
+     * AJAX: Importa regole
+     */
+    public function ajax_import_rules() {
+        check_ajax_referer('rem_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
+        }
+        
+        $import_data = json_decode(stripslashes($_POST['import_data'] ?? '{}'), true);
+        
+        if (empty($import_data)) {
+            wp_send_json_error(__('Dati importazione non validi', 'responsive-element-manager'));
+        }
+        
+        $result = REM_Rule_Manager::import_rules($import_data);
+        
+        if (is_wp_error($result)) {
+            wp_send_json_error($result->get_error_message());
+        }
+        
+        wp_send_json_success($result);
+    }
+    
+    /**
+     * AJAX: Ottieni informazioni elemento
+     */
+    public function ajax_get_element_info() {
+        check_ajax_referer('rem_nonce', 'nonce');
+        
+        $selector = sanitize_text_field($_POST['selector'] ?? '');
+        
+        if (empty($selector)) {
+            wp_send_json_error(__('Selettore non fornito', 'responsive-element-manager'));
+        }
+        
+        // Qui potresti implementare logica per analizzare l'elemento
+        $element_info = array(
+            'selector' => $selector,
+            'exists' => true, // In un'implementazione reale verificheresti questo
+            'children_count' => 0,
+            'has_rules' => false
+        );
+        
+        wp_send_json_success($element_info);
+    }
+    
+    /**
+     * Verifica se caricare il plugin sulla pagina corrente
+     */
+    private function should_load_on_current_page() {
+        $settings = get_option('rem_settings', array());
+        
+        if (!isset($settings['load_on_all_pages']) || $settings['load_on_all_pages']) {
+            return true;
+        }
+        
+        // Logica personalizzata per caricare solo su pagine specifiche
+        return apply_filters('rem_should_load_on_current_page', true);
+    }
+    
+    /**
+     * Ottieni impostazioni per il frontend
+     */
+    private function get_frontend_settings() {
+        $settings = get_option('rem_settings', array());
+        
+        return array(
+            'auto_save' => $settings['auto_save_changes'] ?? false,
+            'show_tooltips' => $settings['show_tooltips'] ?? true,
+            'enable_keyboard_shortcuts' => $settings['enable_keyboard_shortcuts'] ?? true,
+            'preview_delay' => $settings['preview_delay'] ?? 500
+        );
+    }
+    
+    /**
+     * Ottieni breakpoint configurati
+     */
+    private function get_breakpoints() {
+        $default_breakpoints = array(
+            'mobile' => array(
+                'label' => __('Mobile', 'responsive-element-manager'),
+                'icon' => '📱',
+                'max_width' => 767,
+                'media_query' => '(max-width: 767px)'
+            ),
+            'tablet' => array(
+                'label' => __('Tablet', 'responsive-element-manager'),
+                'icon' => '📟',
+                'min_width' => 768,
+                'max_width' => 1023,
+                'media_query' => '(min-width: 768px) and (max-width: 1023px)'
+            ),
+            'desktop' => array(
+                'label' => __('Desktop', 'responsive-element-manager'),
+                'icon' => '🖥️',
+                'min_width' => 1024,
+                'media_query' => '(min-width: 1024px)'
+            )
+        );
+        
+        return apply_filters('rem_breakpoints', $default_breakpoints);
+    }
+    
+    /**
+     * Ottieni preferenze utente
+     */
+    private function get_user_preferences() {
+        $user_id = get_current_user_id();
+        
+        if (!$user_id) {
+            return array();
+        }
+        
+        return get_user_meta($user_id, 'rem_preferences', true) ?: array();
+    }
+    
+    /**
+     * Ottieni moduli attivi
+     */
+    private function get_active_modules() {
+        return array_map(function($module) {
+            return array(
+                'loaded' => $module['loaded'],
+                'file' => basename($module['file'])
+            );
+        }, $this->modules);
+    }
+    
+    /**
+     * Verifica aggiornamenti database
+     */
+    private function check_database_updates() {
+        $current_db_version = get_option('rem_db_version', '1.0');
+        
+        if (version_compare($current_db_version, REM_DB_VERSION, '<')) {
+            REM_Database::upgrade_tables();
+            update_option('rem_db_version', REM_DB_VERSION);
+        }
+    }
+    
+    /**
+     * Avviso versione PHP
+     */
+    public function php_version_notice() {
+        ?>
+        <div class="notice notice-error">
+            <p>
+                <strong><?php _e('Responsive Element Manager:', 'responsive-element-manager'); ?></strong>
+                <?php printf(
+                    __('Richiede PHP 7.4 o superiore. Versione corrente: %s', 'responsive-element-manager'),
+                    PHP_VERSION
+                ); ?>
+            </p>
+        </div>
+        <?php
     }
 }
 
@@ -484,7 +655,6 @@ class REM_Database {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'rem_rules';
-        
         $charset_collate = $wpdb->get_charset_collate();
         
         $sql = "CREATE TABLE $table_name (
@@ -495,17 +665,52 @@ class REM_Database {
             scope enum('page', 'site') NOT NULL DEFAULT 'page',
             post_id mediumint(9) DEFAULT 0,
             rules longtext NOT NULL,
+            is_active tinyint(1) DEFAULT 1,
+            priority int DEFAULT 10,
+            conditions longtext DEFAULT NULL,
+            module_data longtext DEFAULT NULL,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             INDEX idx_scope_post (scope, post_id),
-            INDEX idx_selector (element_selector(255))
+            INDEX idx_selector (element_selector(255)),
+            INDEX idx_active (is_active),
+            INDEX idx_priority (priority)
         ) $charset_collate;";
         
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
         
         do_action('rem_database_created');
+    }
+    
+    public static function upgrade_tables() {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'rem_rules';
+        
+        // Aggiungi colonne mancanti
+        $columns_to_add = array(
+            'is_active' => "ALTER TABLE $table_name ADD COLUMN is_active TINYINT(1) DEFAULT 1",
+            'priority' => "ALTER TABLE $table_name ADD COLUMN priority INT DEFAULT 10",
+            'conditions' => "ALTER TABLE $table_name ADD COLUMN conditions LONGTEXT DEFAULT NULL",
+            'module_data' => "ALTER TABLE $table_name ADD COLUMN module_data LONGTEXT DEFAULT NULL"
+        );
+        
+        foreach ($columns_to_add as $column => $sql) {
+            $column_exists = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SHOW COLUMNS FROM $table_name LIKE %s",
+                    $column
+                )
+            );
+            
+            if (empty($column_exists)) {
+                $wpdb->query($sql);
+            }
+        }
+        
+        do_action('rem_database_upgraded');
     }
 }
 
@@ -519,27 +724,65 @@ class REM_Rule_Manager {
         
         $table_name = $wpdb->prefix . 'rem_rules';
         
-        // Validazione di base
-        if (empty($rule_data['selector'])) {
-            return new WP_Error('validation_error', 'Selettore richiesto');
+        // Validazione dei dati
+        $validated_data = self::validate_rule_data($rule_data);
+        if (is_wp_error($validated_data)) {
+            return $validated_data;
         }
         
         $data = array(
-            'element_selector' => sanitize_text_field($rule_data['selector']),
-            'element_id' => sanitize_text_field($rule_data['element_id'] ?? ''),
-            'element_class' => sanitize_text_field($rule_data['element_class'] ?? ''),
-            'scope' => sanitize_text_field($rule_data['scope'] ?? 'page'),
-            'post_id' => intval($rule_data['post_id'] ?? 0),
-            'rules' => json_encode($rule_data['rules'] ?? array())
+            'element_selector' => $validated_data['selector'],
+            'element_id' => $validated_data['element_id'],
+            'element_class' => $validated_data['element_class'],
+            'scope' => $validated_data['scope'],
+            'post_id' => $validated_data['scope'] === 'page' ? $validated_data['post_id'] : 0,
+            'rules' => json_encode($validated_data['rules']),
+            'is_active' => $validated_data['is_active'] ?? 1,
+            'priority' => $validated_data['priority'] ?? 10,
+            'conditions' => !empty($validated_data['conditions']) ? json_encode($validated_data['conditions']) : null,
+            'module_data' => !empty($validated_data['module_data']) ? json_encode($validated_data['module_data']) : null
         );
         
-        $result = $wpdb->insert($table_name, $data);
+        // Verifica se esiste già una regola per questo elemento
+        $existing_rule = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM $table_name WHERE element_selector = %s AND scope = %s AND post_id = %d",
+            $data['element_selector'],
+            $data['scope'],
+            $data['post_id']
+        ));
         
-        if ($result === false) {
-            return new WP_Error('db_error', 'Errore nel salvare la regola');
+        if ($existing_rule) {
+            // Aggiorna regola esistente
+            $result = $wpdb->update(
+                $table_name,
+                $data,
+                array('id' => $existing_rule->id),
+                array('%s', '%s', '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s'),
+                array('%d')
+            );
+            $rule_id = $existing_rule->id;
+        } else {
+            // Crea nuova regola
+            $result = $wpdb->insert(
+                $table_name,
+                $data,
+                array('%s', '%s', '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s')
+            );
+            $rule_id = $wpdb->insert_id;
         }
         
-        return array('success' => true, 'message' => 'Regola salvata con successo');
+        if ($result === false) {
+            return new WP_Error('db_error', __('Errore nel salvare la regola', 'responsive-element-manager'));
+        }
+        
+        // Hook per estensioni
+        do_action('rem_rule_saved', $validated_data, $rule_id);
+        
+        return array(
+            'success' => true, 
+            'message' => __('Regola salvata con successo', 'responsive-element-manager'),
+            'rule_id' => $rule_id
+        );
     }
     
     public static function delete_rule($rule_id) {
@@ -547,34 +790,175 @@ class REM_Rule_Manager {
         
         $table_name = $wpdb->prefix . 'rem_rules';
         
-        $result = $wpdb->delete($table_name, array('id' => $rule_id), array('%d'));
+        // Verifica che la regola esista
+        $rule = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE id = %d",
+            $rule_id
+        ));
         
-        if ($result === false) {
-            return new WP_Error('db_error', 'Errore nell\'eliminare la regola');
+        if (!$rule) {
+            return new WP_Error('not_found', __('Regola non trovata', 'responsive-element-manager'));
         }
         
-        return array('success' => true, 'message' => 'Regola eliminata con successo');
+        $result = $wpdb->delete(
+            $table_name,
+            array('id' => $rule_id),
+            array('%d')
+        );
+        
+        if ($result === false) {
+            return new WP_Error('db_error', __('Errore nell\'eliminare la regola', 'responsive-element-manager'));
+        }
+        
+        // Hook per estensioni
+        do_action('rem_rule_deleted', $rule_id, $rule);
+        
+        return array(
+            'success' => true, 
+            'message' => __('Regola eliminata con successo', 'responsive-element-manager')
+        );
     }
     
-    public static function get_rules($post_id = 0) {
+    public static function get_rules($post_id = 0, $active_only = true) {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'rem_rules';
         
+        $where_conditions = array();
+        $where_values = array();
+        
         if ($post_id > 0) {
-            $rules = $wpdb->get_results($wpdb->prepare(
-                "SELECT * FROM $table_name WHERE (scope = 'page' AND post_id = %d) OR scope = 'site' ORDER BY created_at DESC",
-                $post_id
-            ));
+            $where_conditions[] = "(scope = 'page' AND post_id = %d) OR scope = 'site'";
+            $where_values[] = $post_id;
         } else {
-            $rules = $wpdb->get_results("SELECT * FROM $table_name WHERE scope = 'site' ORDER BY created_at DESC");
+            $where_conditions[] = "scope = 'site'";
         }
         
+        if ($active_only) {
+            $where_conditions[] = "is_active = 1";
+        }
+        
+        $where_clause = implode(' AND ', $where_conditions);
+        
+        $sql = "SELECT * FROM $table_name WHERE $where_clause ORDER BY priority ASC, created_at DESC";
+        
+        if (!empty($where_values)) {
+            $rules = $wpdb->get_results($wpdb->prepare($sql, $where_values));
+        } else {
+            $rules = $wpdb->get_results($sql);
+        }
+        
+        // Decodifica i dati JSON
         foreach ($rules as &$rule) {
             $rule->rules = json_decode($rule->rules, true);
+            $rule->conditions = $rule->conditions ? json_decode($rule->conditions, true) : null;
+            $rule->module_data = $rule->module_data ? json_decode($rule->module_data, true) : null;
         }
         
-        return $rules;
+        return apply_filters('rem_get_rules', $rules, $post_id);
+    }
+    
+    public static function export_rules($format = 'json', $scope = 'all') {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'rem_rules';
+        
+        $where_clause = '';
+        if ($scope === 'site') {
+            $where_clause = "WHERE scope = 'site'";
+        } elseif ($scope === 'page') {
+            $where_clause = "WHERE scope = 'page'";
+        }
+        
+        $rules = $wpdb->get_results("SELECT * FROM $table_name $where_clause ORDER BY created_at DESC");
+        
+        $export_data = array(
+            'version' => REM_VERSION,
+            'exported_at' => current_time('mysql'),
+            'site_url' => get_site_url(),
+            'total_rules' => count($rules),
+            'rules' => $rules
+        );
+        
+        if ($format === 'json') {
+            return array(
+                'content' => json_encode($export_data, JSON_PRETTY_PRINT),
+                'filename' => 'rem-export-' . date('Y-m-d-H-i-s') . '.json',
+                'mime_type' => 'application/json'
+            );
+        }
+        
+        return $export_data;
+    }
+    
+    public static function import_rules($import_data) {
+        global $wpdb;
+        
+        if (!isset($import_data['rules']) || !is_array($import_data['rules'])) {
+            return new WP_Error('invalid_data', __('Dati di importazione non validi', 'responsive-element-manager'));
+        }
+        
+        $imported = 0;
+        $skipped = 0;
+        
+        foreach ($import_data['rules'] as $rule_data) {
+            $rule_array = (array) $rule_data;
+            
+            // Rimuovi l'ID per evitare conflitti
+            unset($rule_array['id']);
+            
+            $result = self::save_rule($rule_array);
+            
+            if (is_wp_error($result)) {
+                $skipped++;
+            } else {
+                $imported++;
+            }
+        }
+        
+        return array(
+            'imported' => $imported,
+            'skipped' => $skipped,
+            'message' => sprintf(
+                __('Importate %d regole, %d ignorate', 'responsive-element-manager'),
+                $imported,
+                $skipped
+            )
+        );
+    }
+    
+    private static function validate_rule_data($data) {
+        $validated = array();
+        
+        // Validazione selector
+        if (empty($data['selector'])) {
+            return new WP_Error('validation_error', __('Selettore elemento richiesto', 'responsive-element-manager'));
+        }
+        $validated['selector'] = sanitize_text_field($data['selector']);
+        
+        // Validazione scope
+        if (!in_array($data['scope'] ?? 'page', array('page', 'site'))) {
+            return new WP_Error('validation_error', __('Scope non valido', 'responsive-element-manager'));
+        }
+        $validated['scope'] = $data['scope'];
+        
+        // Altri campi
+        $validated['post_id'] = intval($data['post_id'] ?? 0);
+        $validated['element_id'] = sanitize_text_field($data['element_id'] ?? '');
+        $validated['element_class'] = sanitize_text_field($data['element_class'] ?? '');
+        $validated['is_active'] = !empty($data['is_active']) ? 1 : 1; // Default attivo
+        $validated['priority'] = intval($data['priority'] ?? 10);
+        
+        // Validazione regole
+        if (empty($data['rules']) || !is_array($data['rules'])) {
+            return new WP_Error('validation_error', __('Regole non valide', 'responsive-element-manager'));
+        }
+        
+        $validated['rules'] = $data['rules']; // La validazione dettagliata sarà fatta dai moduli
+        $validated['conditions'] = $data['conditions'] ?? null;
+        $validated['module_data'] = $data['module_data'] ?? null;
+        
+        return apply_filters('rem_validate_rule_data', $validated, $data);
     }
 }
 
@@ -595,22 +979,22 @@ class REM_CSS_Generator {
         }
         
         $css_output = '';
-        $breakpoints = array(
-            'mobile' => '(max-width: 767px)',
-            'tablet' => '(min-width: 768px) and (max-width: 1023px)',
-            'desktop' => ''
-        );
+        $breakpoints = self::get_breakpoints();
         
         foreach ($rules as $rule) {
             $selector = $rule->element_selector;
             $rule_css = $rule->rules;
+            
+            if (!is_array($rule_css)) {
+                continue;
+            }
             
             foreach ($breakpoints as $breakpoint => $media_query) {
                 if (isset($rule_css[$breakpoint]) && !empty($rule_css[$breakpoint])) {
                     $css_rules = self::convert_rules_to_css($rule_css[$breakpoint]);
                     
                     if (!empty($css_rules)) {
-                        if ($breakpoint === 'desktop') {
+                        if ($breakpoint === 'desktop' || empty($media_query)) {
                             $css_output .= "$selector { $css_rules }\n";
                         } else {
                             $css_output .= "@media $media_query { $selector { $css_rules } }\n";
@@ -620,35 +1004,117 @@ class REM_CSS_Generator {
             }
         }
         
-        return $css_output;
+        return apply_filters('rem_generated_css', $css_output, $rules);
+    }
+    
+    private static function get_breakpoints() {
+        $breakpoints = array(
+            'mobile' => '(max-width: 767px)',
+            'tablet' => '(min-width: 768px) and (max-width: 1023px)',
+            'desktop' => '', // No media query for desktop
+        );
+        
+        return apply_filters('rem_css_breakpoints', $breakpoints);
     }
     
     private static function convert_rules_to_css($rules) {
         $css_rules = array();
         
+        // Font properties
         if (isset($rules['font_size'])) {
-            $css_rules[] = 'font-size: ' . $rules['font_size']['value'] . $rules['font_size']['unit'];
+            $css_rules[] = 'font-size: ' . $rules['font_size']['value'] . $rules['font_size']['unit'] . ' !important';
         }
         
-        if (isset($rules['font_family'])) {
-            $css_rules[] = 'font-family: ' . $rules['font_family'];
+        if (isset($rules['font_family']) && !empty($rules['font_family'])) {
+            $css_rules[] = 'font-family: ' . $rules['font_family'] . ' !important';
         }
         
-        if (isset($rules['text_align'])) {
-            $css_rules[] = 'text-align: ' . $rules['text_align'];
+        if (isset($rules['font_weight']) && !empty($rules['font_weight'])) {
+            $css_rules[] = 'font-weight: ' . $rules['font_weight'] . ' !important';
+        }
+        
+        if (isset($rules['line_height'])) {
+            $css_rules[] = 'line-height: ' . $rules['line_height']['value'] . $rules['line_height']['unit'] . ' !important';
+        }
+        
+        if (isset($rules['text_align']) && !empty($rules['text_align'])) {
+            $css_rules[] = 'text-align: ' . $rules['text_align'] . ' !important';
+        }
+        
+        // Colors
+        if (isset($rules['text_color']) && !empty($rules['text_color'])) {
+            $css_rules[] = 'color: ' . $rules['text_color'] . ' !important';
+        }
+        
+        if (isset($rules['background_color']) && !empty($rules['background_color'])) {
+            $css_rules[] = 'background-color: ' . $rules['background_color'] . ' !important';
+        }
+        
+        if (isset($rules['border_color']) && !empty($rules['border_color'])) {
+            $css_rules[] = 'border-color: ' . $rules['border_color'] . ' !important';
+        }
+        
+        // Layout
+        if (isset($rules['display']) && !empty($rules['display'])) {
+            $css_rules[] = 'display: ' . $rules['display'] . ' !important';
         }
         
         if (isset($rules['width'])) {
-            $css_rules[] = 'width: ' . $rules['width']['value'] . $rules['width']['unit'];
+            $css_rules[] = 'width: ' . $rules['width']['value'] . $rules['width']['unit'] . ' !important';
         }
         
         if (isset($rules['height'])) {
-            $css_rules[] = 'height: ' . $rules['height']['value'] . $rules['height']['unit'];
+            $css_rules[] = 'height: ' . $rules['height']['value'] . $rules['height']['unit'] . ' !important';
         }
         
-        return implode('; ', $css_rules);
+        // Spacing
+        $spacing_properties = array('margin', 'padding');
+        $sides = array('top', 'right', 'bottom', 'left');
+        
+        foreach ($spacing_properties as $property) {
+            foreach ($sides as $side) {
+                $key = $property . '_' . $side;
+                if (isset($rules[$key])) {
+                    $value = $rules[$key]['value'];
+                    $unit = $rules[$key]['unit'];
+                    $css_rules[] = "$property-$side: $value$unit !important";
+                }
+            }
+        }
+        
+        // Effects
+        if (isset($rules['opacity'])) {
+            $css_rules[] = 'opacity: ' . $rules['opacity'] . ' !important';
+        }
+        
+        if (isset($rules['box_shadow']) && !empty($rules['box_shadow'])) {
+            $css_rules[] = 'box-shadow: ' . $rules['box_shadow'] . ' !important';
+        }
+        
+        if (isset($rules['border_radius'])) {
+            $css_rules[] = 'border-radius: ' . $rules['border_radius']['value'] . $rules['border_radius']['unit'] . ' !important';
+        }
+        
+        return apply_filters('rem_css_rules', implode('; ', $css_rules), $rules);
     }
 }
 
 // Inizializza il plugin
 ResponsiveElementManager::get_instance();
+
+// Funzioni helper globali
+function rem_get_rules($post_id = 0) {
+    return REM_Rule_Manager::get_rules($post_id);
+}
+
+function rem_save_rule($rule_data) {
+    return REM_Rule_Manager::save_rule($rule_data);
+}
+
+function rem_delete_rule($rule_id) {
+    return REM_Rule_Manager::delete_rule($rule_id);
+}
+
+function rem_generate_css($post_id = null) {
+    return REM_CSS_Generator::generate_css($post_id);
+}
