@@ -1,6 +1,6 @@
 /**
- * Frontend JavaScript migliorato per Responsive Element Manager
- * Include controlli avanzati e selezione elementi migliorata
+ * Frontend JavaScript CORRETTO per Responsive Element Manager
+ * Include salvataggio funzionante, allineamento, proporzioni automatiche e posizionamento x,y
  */
 (function() {
     'use strict';
@@ -15,9 +15,15 @@
             this.currentSelector = '';
             this.currentBreakpoint = 'mobile';
             this.currentRules = {};
-            this.selectorMode = 'self'; // self, parent, children
+            this.selectorMode = 'self';
             this.childElements = [];
             this.hoveredElement = null;
+            this.autoProportions = true; // Nuova opzione per proporzioni automatiche
+            this.deviceProportions = {
+                mobile: { width: 375, height: 667 },
+                tablet: { width: 768, height: 1024 },
+                desktop: { width: 1920, height: 1080 }
+            };
             
             this.init();
         }
@@ -50,14 +56,18 @@
         }
         
         /**
-         * HTML del modal migliorato
+         * HTML del modal migliorato con nuovi controlli
          */
         getModalHTML() {
             return `
                 <div class="rem-modal-content">
                     <div class="rem-modal-header">
                         <h3>🎨 Editor Responsive Avanzato</h3>
-                        <span id="rem-close">&times;</span>
+                        <div class="rem-header-controls">
+                            <button id="rem-auto-proportions" class="rem-toggle-btn ${this.autoProportions ? 'active' : ''}" 
+                                    title="Proporzioni Automatiche">🔄 Auto</button>
+                            <span id="rem-close">&times;</span>
+                        </div>
                     </div>
                     <div class="rem-modal-body">
                         <!-- Informazioni elemento selezionato -->
@@ -121,6 +131,9 @@
                             <button id="rem-reset-element" class="rem-btn rem-btn-danger">
                                 🔄 Reset Elemento
                             </button>
+                            <button id="rem-apply-auto-proportions" class="rem-btn rem-btn-info">
+                                🔄 Applica Proporzioni Auto
+                            </button>
                         </div>
                     </div>
                     <div class="rem-modal-footer">
@@ -132,7 +145,7 @@
         }
         
         /**
-         * Genera controlli per il breakpoint corrente
+         * Genera controlli per il breakpoint corrente - VERSIONE CORRETTA
          */
         showBreakpointControls() {
             const container = document.getElementById('rem-breakpoint-content');
@@ -141,6 +154,125 @@
             container.innerHTML = `
                 <div class="rem-controls-container">
                     <div class="rem-controls-grid">
+                        
+                        <!-- Posizionamento e Layout -->
+                        <div class="rem-control-group">
+                            <h4>📐 Posizionamento e Layout</h4>
+                            
+                            <!-- Posizione -->
+                            <div class="rem-form-group">
+                                <label>Posizione:</label>
+                                <select id="position-${this.currentBreakpoint}">
+                                    <option value="">Predefinito</option>
+                                    <option value="static">Static</option>
+                                    <option value="relative">Relative</option>
+                                    <option value="absolute">Absolute</option>
+                                    <option value="fixed">Fixed</option>
+                                    <option value="sticky">Sticky</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Coordinate X e Y -->
+                            <div id="position-controls-${this.currentBreakpoint}" class="rem-position-controls" style="display: none;">
+                                <div class="rem-form-row">
+                                    <div class="rem-form-group">
+                                        <label>Posizione X (Left):</label>
+                                        <div class="rem-input-group">
+                                            <input type="number" id="position-x-${this.currentBreakpoint}" 
+                                                   placeholder="0" step="1">
+                                            <select id="position-x-unit-${this.currentBreakpoint}">
+                                                <option value="px">px</option>
+                                                <option value="%">%</option>
+                                                <option value="em">em</option>
+                                                <option value="rem">rem</option>
+                                                <option value="vw">vw</option>
+                                                <option value="auto">auto</option>
+                                            </select>
+                                            <button type="button" class="rem-auto-btn" data-property="position-x" 
+                                                    title="Applica proporzione automatica">🔄</button>
+                                        </div>
+                                    </div>
+                                    <div class="rem-form-group">
+                                        <label>Posizione Y (Top):</label>
+                                        <div class="rem-input-group">
+                                            <input type="number" id="position-y-${this.currentBreakpoint}" 
+                                                   placeholder="0" step="1">
+                                            <select id="position-y-unit-${this.currentBreakpoint}">
+                                                <option value="px">px</option>
+                                                <option value="%">%</option>
+                                                <option value="em">em</option>
+                                                <option value="rem">rem</option>
+                                                <option value="vh">vh</option>
+                                                <option value="auto">auto</option>
+                                            </select>
+                                            <button type="button" class="rem-auto-btn" data-property="position-y" 
+                                                    title="Applica proporzione automatica">🔄</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Allineamento Universale -->
+                            <div class="rem-form-group">
+                                <label>Allineamento Elemento:</label>
+                                <div class="rem-alignment-grid">
+                                    <button type="button" class="rem-align-btn" data-align="left" title="Sinistra">⬅️</button>
+                                    <button type="button" class="rem-align-btn" data-align="center" title="Centro">↔️</button>
+                                    <button type="button" class="rem-align-btn" data-align="right" title="Destra">➡️</button>
+                                    <button type="button" class="rem-align-btn" data-align="justify" title="Giustificato">↕️</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Display -->
+                            <div class="rem-form-group">
+                                <label>Display:</label>
+                                <select id="display-${this.currentBreakpoint}">
+                                    <option value="">Predefinito</option>
+                                    <option value="block">Block</option>
+                                    <option value="inline">Inline</option>
+                                    <option value="inline-block">Inline Block</option>
+                                    <option value="flex">Flex Container</option>
+                                    <option value="grid">Grid Container</option>
+                                    <option value="none">🚫 Nascosto</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Controlli Flex -->
+                            <div id="flex-controls-${this.currentBreakpoint}" class="rem-flex-controls" style="display: none;">
+                                <div class="rem-form-group">
+                                    <label>Direzione Flex:</label>
+                                    <select id="flex-direction-${this.currentBreakpoint}">
+                                        <option value="">Predefinito</option>
+                                        <option value="row">Riga →</option>
+                                        <option value="column">Colonna ↓</option>
+                                        <option value="row-reverse">Riga ←</option>
+                                        <option value="column-reverse">Colonna ↑</option>
+                                    </select>
+                                </div>
+                                <div class="rem-form-group">
+                                    <label>Allineamento Orizzontale:</label>
+                                    <select id="justify-content-${this.currentBreakpoint}">
+                                        <option value="">Predefinito</option>
+                                        <option value="flex-start">⬅️ Inizio</option>
+                                        <option value="center">↔️ Centro</option>
+                                        <option value="flex-end">➡️ Fine</option>
+                                        <option value="space-between">↔️ Spazio Tra</option>
+                                        <option value="space-around">↔️ Spazio Attorno</option>
+                                    </select>
+                                </div>
+                                <div class="rem-form-group">
+                                    <label>Allineamento Verticale:</label>
+                                    <select id="align-items-${this.currentBreakpoint}">
+                                        <option value="">Predefinito</option>
+                                        <option value="flex-start">⬆️ Inizio</option>
+                                        <option value="center">↕️ Centro</option>
+                                        <option value="flex-end">⬇️ Fine</option>
+                                        <option value="stretch">↕️ Estendi</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <!-- Tipografia -->
                         <div class="rem-control-group">
                             <h4>🔤 Tipografia</h4>
@@ -155,6 +287,8 @@
                                         <option value="em">em</option>
                                         <option value="rem">rem</option>
                                     </select>
+                                    <button type="button" class="rem-auto-btn" data-property="font-size" 
+                                            title="Applica proporzione automatica">🔄</button>
                                 </div>
                             </div>
                             <div class="rem-form-group">
@@ -184,25 +318,12 @@
                                 </select>
                             </div>
                             <div class="rem-form-group">
-                                <label>Altezza Linea:</label>
-                                <div class="rem-input-group">
-                                    <input type="number" id="line-height-${this.currentBreakpoint}" 
-                                           placeholder="1.5" min="0.5" max="5" step="0.1">
-                                    <select id="line-height-unit-${this.currentBreakpoint}">
-                                        <option value="">numero</option>
-                                        <option value="px">px</option>
-                                        <option value="em">em</option>
-                                        <option value="rem">rem</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="rem-form-group">
                                 <label>Allineamento Testo:</label>
                                 <div class="rem-alignment-buttons">
-                                    <button type="button" class="rem-align-btn" data-align="left" title="Sinistra">⬅️</button>
-                                    <button type="button" class="rem-align-btn" data-align="center" title="Centro">↔️</button>
-                                    <button type="button" class="rem-align-btn" data-align="right" title="Destra">➡️</button>
-                                    <button type="button" class="rem-align-btn" data-align="justify" title="Giustificato">↕️</button>
+                                    <button type="button" class="rem-text-align-btn" data-align="left" title="Sinistra">⬅️</button>
+                                    <button type="button" class="rem-text-align-btn" data-align="center" title="Centro">↔️</button>
+                                    <button type="button" class="rem-text-align-btn" data-align="right" title="Destra">➡️</button>
+                                    <button type="button" class="rem-text-align-btn" data-align="justify" title="Giustificato">↕️</button>
                                 </div>
                             </div>
                         </div>
@@ -242,57 +363,7 @@
                             </div>
                         </div>
                         
-                        <!-- Layout -->
-                        <div class="rem-control-group">
-                            <h4>📐 Layout e Visibilità</h4>
-                            <div class="rem-form-group">
-                                <label>Display:</label>
-                                <select id="display-${this.currentBreakpoint}">
-                                    <option value="">Predefinito</option>
-                                    <option value="block">Block</option>
-                                    <option value="inline">Inline</option>
-                                    <option value="inline-block">Inline Block</option>
-                                    <option value="flex">Flex Container</option>
-                                    <option value="grid">Grid Container</option>
-                                    <option value="none">🚫 Nascosto</option>
-                                </select>
-                            </div>
-                            <div id="flex-controls-${this.currentBreakpoint}" class="rem-flex-controls" style="display: none;">
-                                <div class="rem-form-group">
-                                    <label>Direzione Flex:</label>
-                                    <select id="flex-direction-${this.currentBreakpoint}">
-                                        <option value="">Predefinito</option>
-                                        <option value="row">Riga →</option>
-                                        <option value="column">Colonna ↓</option>
-                                        <option value="row-reverse">Riga ←</option>
-                                        <option value="column-reverse">Colonna ↑</option>
-                                    </select>
-                                </div>
-                                <div class="rem-form-group">
-                                    <label>Allineamento Orizzontale:</label>
-                                    <select id="justify-content-${this.currentBreakpoint}">
-                                        <option value="">Predefinito</option>
-                                        <option value="flex-start">⬅️ Inizio</option>
-                                        <option value="center">↔️ Centro</option>
-                                        <option value="flex-end">➡️ Fine</option>
-                                        <option value="space-between">↔️ Spazio Tra</option>
-                                        <option value="space-around">↔️ Spazio Attorno</option>
-                                    </select>
-                                </div>
-                                <div class="rem-form-group">
-                                    <label>Allineamento Verticale:</label>
-                                    <select id="align-items-${this.currentBreakpoint}">
-                                        <option value="">Predefinito</option>
-                                        <option value="flex-start">⬆️ Inizio</option>
-                                        <option value="center">↕️ Centro</option>
-                                        <option value="flex-end">⬇️ Fine</option>
-                                        <option value="stretch">↕️ Estendi</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Dimensioni -->
+                        <!-- Dimensioni con Auto -->
                         <div class="rem-control-group">
                             <h4>📏 Dimensioni</h4>
                             <div class="rem-form-group">
@@ -308,6 +379,8 @@
                                         <option value="vw">vw</option>
                                         <option value="auto">auto</option>
                                     </select>
+                                    <button type="button" class="rem-auto-btn" data-property="width" 
+                                            title="Applica proporzione automatica">🔄</button>
                                 </div>
                             </div>
                             <div class="rem-form-group">
@@ -323,37 +396,63 @@
                                         <option value="vh">vh</option>
                                         <option value="auto">auto</option>
                                     </select>
+                                    <button type="button" class="rem-auto-btn" data-property="height" 
+                                            title="Applica proporzione automatica">🔄</button>
                                 </div>
                             </div>
                         </div>
                         
-                        <!-- Spaziatura -->
+                        <!-- Spaziatura con Auto -->
                         <div class="rem-control-group">
                             <h4>📦 Spaziatura</h4>
                             <div class="rem-spacing-visual">
                                 <div class="rem-spacing-label">Margini:</div>
                                 <div class="rem-spacing-box">
                                     <div class="rem-margin-controls">
-                                        <input type="number" id="margin-top-${this.currentBreakpoint}" 
-                                               placeholder="0" class="rem-spacing-input rem-margin-top">
-                                        <input type="number" id="margin-right-${this.currentBreakpoint}" 
-                                               placeholder="0" class="rem-spacing-input rem-margin-right">
-                                        <input type="number" id="margin-bottom-${this.currentBreakpoint}" 
-                                               placeholder="0" class="rem-spacing-input rem-margin-bottom">
-                                        <input type="number" id="margin-left-${this.currentBreakpoint}" 
-                                               placeholder="0" class="rem-spacing-input rem-margin-left">
+                                        <div class="rem-spacing-input-group">
+                                            <input type="number" id="margin-top-${this.currentBreakpoint}" 
+                                                   placeholder="0" class="rem-spacing-input rem-margin-top">
+                                            <button type="button" class="rem-auto-btn-small" data-property="margin-top">🔄</button>
+                                        </div>
+                                        <div class="rem-spacing-input-group">
+                                            <input type="number" id="margin-right-${this.currentBreakpoint}" 
+                                                   placeholder="0" class="rem-spacing-input rem-margin-right">
+                                            <button type="button" class="rem-auto-btn-small" data-property="margin-right">🔄</button>
+                                        </div>
+                                        <div class="rem-spacing-input-group">
+                                            <input type="number" id="margin-bottom-${this.currentBreakpoint}" 
+                                                   placeholder="0" class="rem-spacing-input rem-margin-bottom">
+                                            <button type="button" class="rem-auto-btn-small" data-property="margin-bottom">🔄</button>
+                                        </div>
+                                        <div class="rem-spacing-input-group">
+                                            <input type="number" id="margin-left-${this.currentBreakpoint}" 
+                                                   placeholder="0" class="rem-spacing-input rem-margin-left">
+                                            <button type="button" class="rem-auto-btn-small" data-property="margin-left">🔄</button>
+                                        </div>
                                     </div>
                                     <div class="rem-padding-box">
                                         <div class="rem-spacing-label">Padding:</div>
                                         <div class="rem-padding-controls">
-                                            <input type="number" id="padding-top-${this.currentBreakpoint}" 
-                                                   placeholder="0" class="rem-spacing-input rem-padding-top">
-                                            <input type="number" id="padding-right-${this.currentBreakpoint}" 
-                                                   placeholder="0" class="rem-spacing-input rem-padding-right">
-                                            <input type="number" id="padding-bottom-${this.currentBreakpoint}" 
-                                                   placeholder="0" class="rem-spacing-input rem-padding-bottom">
-                                            <input type="number" id="padding-left-${this.currentBreakpoint}" 
-                                                   placeholder="0" class="rem-spacing-input rem-padding-left">
+                                            <div class="rem-spacing-input-group">
+                                                <input type="number" id="padding-top-${this.currentBreakpoint}" 
+                                                       placeholder="0" class="rem-spacing-input rem-padding-top">
+                                                <button type="button" class="rem-auto-btn-small" data-property="padding-top">🔄</button>
+                                            </div>
+                                            <div class="rem-spacing-input-group">
+                                                <input type="number" id="padding-right-${this.currentBreakpoint}" 
+                                                       placeholder="0" class="rem-spacing-input rem-padding-right">
+                                                <button type="button" class="rem-auto-btn-small" data-property="padding-right">🔄</button>
+                                            </div>
+                                            <div class="rem-spacing-input-group">
+                                                <input type="number" id="padding-bottom-${this.currentBreakpoint}" 
+                                                       placeholder="0" class="rem-spacing-input rem-padding-bottom">
+                                                <button type="button" class="rem-auto-btn-small" data-property="padding-bottom">🔄</button>
+                                            </div>
+                                            <div class="rem-spacing-input-group">
+                                                <input type="number" id="padding-left-${this.currentBreakpoint}" 
+                                                       placeholder="0" class="rem-spacing-input rem-padding-left">
+                                                <button type="button" class="rem-auto-btn-small" data-property="padding-left">🔄</button>
+                                            </div>
                                         </div>
                                         <div class="rem-element-box">Elemento</div>
                                     </div>
@@ -398,6 +497,8 @@
                                         <option value="%">%</option>
                                         <option value="em">em</option>
                                     </select>
+                                    <button type="button" class="rem-auto-btn" data-property="border-radius" 
+                                            title="Applica proporzione automatica">🔄</button>
                                 </div>
                             </div>
                         </div>
@@ -410,10 +511,23 @@
         }
         
         /**
-         * Eventi per i controlli del breakpoint
+         * Eventi per i controlli del breakpoint - VERSIONE CORRETTA
          */
         bindBreakpointEvents() {
             const bp = this.currentBreakpoint;
+            
+            // Position change - mostra/nascondi controlli x,y
+            const positionSelect = document.getElementById(`position-${bp}`);
+            if (positionSelect) {
+                positionSelect.addEventListener('change', (e) => {
+                    const positionControls = document.getElementById(`position-controls-${bp}`);
+                    if (positionControls) {
+                        const showControls = ['relative', 'absolute', 'fixed', 'sticky'].includes(e.target.value);
+                        positionControls.style.display = showControls ? 'block' : 'none';
+                    }
+                    this.applyPreviewStyles();
+                });
+            }
             
             // Display change
             const displaySelect = document.getElementById(`display-${bp}`);
@@ -440,12 +554,30 @@
             // Color sync between color picker and hex input
             this.syncColorInputs(bp);
             
-            // Alignment buttons
+            // Alignment buttons - UNIVERSALE
             document.querySelectorAll('.rem-align-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     document.querySelectorAll('.rem-align-btn').forEach(b => b.classList.remove('active'));
                     e.target.classList.add('active');
+                    this.applyAlignment(e.target.dataset.align);
+                });
+            });
+            
+            // Text alignment buttons
+            document.querySelectorAll('.rem-text-align-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.rem-text-align-btn').forEach(b => b.classList.remove('active'));
+                    e.target.classList.add('active');
                     this.applyPreviewStyles();
+                });
+            });
+            
+            // Auto proportion buttons
+            document.querySelectorAll('.rem-auto-btn, .rem-auto-btn-small').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const property = e.target.dataset.property;
+                    this.applyAutoProportions(property);
                 });
             });
             
@@ -472,33 +604,163 @@
         }
         
         /**
-         * Sincronizza color picker e input hex
+         * NUOVO: Applica allineamento universale all'elemento
          */
-        syncColorInputs(breakpoint) {
-            const colorTypes = ['text-color', 'bg-color', 'border-color'];
+        applyAlignment(alignment) {
+            if (!this.selectedElement) return;
             
-            colorTypes.forEach(type => {
-                const colorInput = document.getElementById(`${type}-${breakpoint}`);
-                const hexInput = document.getElementById(`${type}-hex-${breakpoint}`);
-                
-                if (colorInput && hexInput) {
-                    colorInput.addEventListener('input', (e) => {
-                        hexInput.value = e.target.value;
-                        this.applyPreviewStyles();
-                    });
-                    
-                    hexInput.addEventListener('input', (e) => {
-                        if (/^#([0-9A-F]{3}){1,2}$/i.test(e.target.value)) {
-                            colorInput.value = e.target.value;
-                            this.applyPreviewStyles();
-                        }
-                    });
-                }
-            });
+            const element = this.selectedElement;
+            const parent = element.parentElement;
+            
+            // Rimuovi classi di allineamento esistenti
+            element.classList.remove('rem-align-left', 'rem-align-center', 'rem-align-right', 'rem-align-justify');
+            
+            switch (alignment) {
+                case 'left':
+                    element.style.marginLeft = '0';
+                    element.style.marginRight = 'auto';
+                    element.classList.add('rem-align-left');
+                    break;
+                case 'center':
+                    element.style.marginLeft = 'auto';
+                    element.style.marginRight = 'auto';
+                    element.classList.add('rem-align-center');
+                    break;
+                case 'right':
+                    element.style.marginLeft = 'auto';
+                    element.style.marginRight = '0';
+                    element.classList.add('rem-align-right');
+                    break;
+                case 'justify':
+                    element.style.width = '100%';
+                    element.classList.add('rem-align-justify');
+                    break;
+            }
+            
+            this.applyPreviewStyles();
         }
         
         /**
-         * Applica gli stili in anteprima
+         * NUOVO: Applica proporzioni automatiche per una proprietà specifica
+         */
+        applyAutoProportions(property) {
+            if (!this.autoProportions) {
+                this.showNotification('Proporzioni automatiche disabilitate', 'warning');
+                return;
+            }
+            
+            const sourceBreakpoint = this.currentBreakpoint;
+            const sourceValue = this.getPropertyValue(property, sourceBreakpoint);
+            
+            if (!sourceValue || !sourceValue.value) {
+                this.showNotification('Nessun valore da cui calcolare proporzioni', 'warning');
+                return;
+            }
+            
+            // Calcola proporzioni per altri breakpoint
+            Object.keys(this.deviceProportions).forEach(targetBreakpoint => {
+                if (targetBreakpoint !== sourceBreakpoint) {
+                    const proportionalValue = this.calculateProportionalValue(
+                        sourceValue, 
+                        sourceBreakpoint, 
+                        targetBreakpoint, 
+                        property
+                    );
+                    
+                    if (proportionalValue) {
+                        this.setPropertyValue(property, targetBreakpoint, proportionalValue);
+                    }
+                }
+            });
+            
+            this.showNotification(`Proporzioni applicate per ${property}`, 'success');
+        }
+        
+        /**
+         * NUOVO: Calcola valore proporzionale tra dispositivi
+         */
+        calculateProportionalValue(sourceValue, sourceBreakpoint, targetBreakpoint, property) {
+            const sourceDevice = this.deviceProportions[sourceBreakpoint];
+            const targetDevice = this.deviceProportions[targetBreakpoint];
+            
+            if (!sourceDevice || !targetDevice) return null;
+            
+            let ratio;
+            
+            // Determina il ratio in base al tipo di proprietà
+            if (['width', 'position-x', 'margin-left', 'margin-right', 'padding-left', 'padding-right'].includes(property)) {
+                // Usa ratio larghezza
+                ratio = targetDevice.width / sourceDevice.width;
+            } else if (['height', 'position-y', 'margin-top', 'margin-bottom', 'padding-top', 'padding-bottom'].includes(property)) {
+                // Usa ratio altezza
+                ratio = targetDevice.height / sourceDevice.height;
+            } else if (['font-size'].includes(property)) {
+                // Per font, usa una media pesata
+                ratio = Math.sqrt((targetDevice.width * targetDevice.height) / (sourceDevice.width * sourceDevice.height));
+            } else {
+                // Default: usa ratio larghezza
+                ratio = targetDevice.width / sourceDevice.width;
+            }
+            
+            const newValue = Math.round(sourceValue.value * ratio * 100) / 100;
+            
+            return {
+                value: newValue,
+                unit: sourceValue.unit
+            };
+        }
+        
+        /**
+         * NUOVO: Ottiene valore di una proprietà per un breakpoint
+         */
+        getPropertyValue(property, breakpoint) {
+            let valueInput, unitSelect;
+            
+            if (property.includes('-')) {
+                // Proprietà composite (es. position-x)
+                valueInput = document.getElementById(`${property}-${breakpoint}`);
+                unitSelect = document.getElementById(`${property}-unit-${breakpoint}`);
+            } else {
+                // Proprietà semplici
+                valueInput = document.getElementById(`${property}-${breakpoint}`);
+                unitSelect = document.getElementById(`${property.replace('_', '-')}-unit-${breakpoint}`) || 
+                           document.getElementById(`${property}-unit-${breakpoint}`);
+            }
+            
+            if (!valueInput || !valueInput.value) return null;
+            
+            return {
+                value: parseFloat(valueInput.value),
+                unit: unitSelect ? unitSelect.value : 'px'
+            };
+        }
+        
+        /**
+         * NUOVO: Imposta valore di una proprietà per un breakpoint
+         */
+        setPropertyValue(property, breakpoint, valueObj) {
+            let valueInput, unitSelect;
+            
+            if (property.includes('-')) {
+                valueInput = document.getElementById(`${property}-${breakpoint}`);
+                unitSelect = document.getElementById(`${property}-unit-${breakpoint}`);
+            } else {
+                valueInput = document.getElementById(`${property}-${breakpoint}`);
+                unitSelect = document.getElementById(`${property.replace('_', '-')}-unit-${breakpoint}`) || 
+                           document.getElementById(`${property}-unit-${breakpoint}`);
+            }
+            
+            if (valueInput) {
+                valueInput.value = valueObj.value;
+            }
+            
+            if (unitSelect) {
+                unitSelect.value = valueObj.unit;
+            }
+        }
+        
+        /**
+         * Applica gli stili in anteprima - VERSIONE CORRETTA
          */
         applyPreviewStyles() {
             if (!this.selectedElement) return;
@@ -507,11 +769,11 @@
             const css = this.generateCSSFromRules(rules[this.currentBreakpoint] || {});
             
             // Applica gli stili direttamente all'elemento per anteprima
-            this.selectedElement.style.cssText += '; ' + css;
+            this.selectedElement.setAttribute('style', css);
         }
         
         /**
-         * Raccoglie tutte le regole dai controlli
+         * Raccoglie tutte le regole dai controlli - VERSIONE CORRETTA
          */
         collectCurrentRules() {
             const rules = {};
@@ -521,121 +783,172 @@
             
             rules[bp] = {};
             
+            // Posizione
+            const position = document.getElementById(`position-${bp}`);
+            if (position && position.value) {
+                rules[bp].position = position.value;
+                
+                // Coordinate X e Y
+                const posX = document.getElementById(`position-x-${bp}`);
+                const posXUnit = document.getElementById(`position-x-unit-${bp}`);
+                if (posX && posX.value) {
+                    rules[bp].position_x = { 
+                        value: parseFloat(posX.value), 
+                        unit: posXUnit ? posXUnit.value : 'px' 
+                    };
+                }
+                
+                const posY = document.getElementById(`position-y-${bp}`);
+                const posYUnit = document.getElementById(`position-y-unit-${bp}`);
+                if (posY && posY.value) {
+                    rules[bp].position_y = { 
+                        value: parseFloat(posY.value), 
+                        unit: posYUnit ? posYUnit.value : 'px' 
+                    };
+                }
+            }
+            
             // Font
-            const fontSize = document.getElementById(`font-size-${bp}`).value;
-            const fontUnit = document.getElementById(`font-unit-${bp}`).value;
-            if (fontSize) {
-                rules[bp].font_size = { value: parseFloat(fontSize), unit: fontUnit };
+            const fontSize = document.getElementById(`font-size-${bp}`);
+            const fontUnit = document.getElementById(`font-unit-${bp}`);
+            if (fontSize && fontSize.value) {
+                rules[bp].font_size = { 
+                    value: parseFloat(fontSize.value), 
+                    unit: fontUnit ? fontUnit.value : 'px' 
+                };
             }
             
-            const fontFamily = document.getElementById(`font-family-${bp}`).value;
-            if (fontFamily) {
-                rules[bp].font_family = fontFamily;
+            const fontFamily = document.getElementById(`font-family-${bp}`);
+            if (fontFamily && fontFamily.value) {
+                rules[bp].font_family = fontFamily.value;
             }
             
-            const fontWeight = document.getElementById(`font-weight-${bp}`).value;
-            if (fontWeight) {
-                rules[bp].font_weight = fontWeight;
-            }
-            
-            const lineHeight = document.getElementById(`line-height-${bp}`).value;
-            const lineHeightUnit = document.getElementById(`line-height-unit-${bp}`).value;
-            if (lineHeight) {
-                rules[bp].line_height = { value: parseFloat(lineHeight), unit: lineHeightUnit };
+            const fontWeight = document.getElementById(`font-weight-${bp}`);
+            if (fontWeight && fontWeight.value) {
+                rules[bp].font_weight = fontWeight.value;
             }
             
             // Text alignment
+            const activeTextAlign = document.querySelector('.rem-text-align-btn.active');
+            if (activeTextAlign) {
+                rules[bp].text_align = activeTextAlign.dataset.align;
+            }
+            
+            // Element alignment
             const activeAlign = document.querySelector('.rem-align-btn.active');
             if (activeAlign) {
-                rules[bp].text_align = activeAlign.dataset.align;
+                rules[bp].element_align = activeAlign.dataset.align;
             }
             
             // Colors
-            const textColor = document.getElementById(`text-color-hex-${bp}`).value;
-            if (textColor) {
-                rules[bp].text_color = textColor;
+            const textColorHex = document.getElementById(`text-color-hex-${bp}`);
+            if (textColorHex && textColorHex.value) {
+                rules[bp].text_color = textColorHex.value;
             }
             
-            const bgColor = document.getElementById(`bg-color-hex-${bp}`).value;
-            if (bgColor) {
-                rules[bp].background_color = bgColor;
+            const bgColorHex = document.getElementById(`bg-color-hex-${bp}`);
+            if (bgColorHex && bgColorHex.value) {
+                rules[bp].background_color = bgColorHex.value;
             }
             
-            const borderColor = document.getElementById(`border-color-hex-${bp}`).value;
-            if (borderColor) {
-                rules[bp].border_color = borderColor;
+            const borderColorHex = document.getElementById(`border-color-hex-${bp}`);
+            if (borderColorHex && borderColorHex.value) {
+                rules[bp].border_color = borderColorHex.value;
             }
             
             // Layout
-            const display = document.getElementById(`display-${bp}`).value;
-            if (display) {
-                rules[bp].display = display;
+            const display = document.getElementById(`display-${bp}`);
+            if (display && display.value) {
+                rules[bp].display = display.value;
                 
-                if (display === 'flex') {
-                    const flexDirection = document.getElementById(`flex-direction-${bp}`).value;
-                    const justifyContent = document.getElementById(`justify-content-${bp}`).value;
-                    const alignItems = document.getElementById(`align-items-${bp}`).value;
+                if (display.value === 'flex') {
+                    const flexDirection = document.getElementById(`flex-direction-${bp}`);
+                    const justifyContent = document.getElementById(`justify-content-${bp}`);
+                    const alignItems = document.getElementById(`align-items-${bp}`);
                     
-                    if (flexDirection) rules[bp].flex_direction = flexDirection;
-                    if (justifyContent) rules[bp].justify_content = justifyContent;
-                    if (alignItems) rules[bp].align_items = alignItems;
+                    if (flexDirection && flexDirection.value) rules[bp].flex_direction = flexDirection.value;
+                    if (justifyContent && justifyContent.value) rules[bp].justify_content = justifyContent.value;
+                    if (alignItems && alignItems.value) rules[bp].align_items = alignItems.value;
                 }
             }
             
             // Dimensions
-            const width = document.getElementById(`width-${bp}`).value;
-            const widthUnit = document.getElementById(`width-unit-${bp}`).value;
-            if (width) {
-                rules[bp].width = { value: parseFloat(width), unit: widthUnit };
+            const width = document.getElementById(`width-${bp}`);
+            const widthUnit = document.getElementById(`width-unit-${bp}`);
+            if (width && width.value) {
+                rules[bp].width = { 
+                    value: parseFloat(width.value), 
+                    unit: widthUnit ? widthUnit.value : 'px' 
+                };
             }
             
-            const height = document.getElementById(`height-${bp}`).value;
-            const heightUnit = document.getElementById(`height-unit-${bp}`).value;
-            if (height) {
-                rules[bp].height = { value: parseFloat(height), unit: heightUnit };
+            const height = document.getElementById(`height-${bp}`);
+            const heightUnit = document.getElementById(`height-unit-${bp}`);
+            if (height && height.value) {
+                rules[bp].height = { 
+                    value: parseFloat(height.value), 
+                    unit: heightUnit ? heightUnit.value : 'px' 
+                };
             }
             
             // Spacing
-            const spacingUnit = document.getElementById(`spacing-unit-${bp}`).value || 'px';
+            const spacingUnit = document.getElementById(`spacing-unit-${bp}`);
+            const unit = spacingUnit ? spacingUnit.value : 'px';
             
             ['margin', 'padding'].forEach(type => {
                 ['top', 'right', 'bottom', 'left'].forEach(side => {
-                    const value = document.getElementById(`${type}-${side}-${bp}`).value;
-                    if (value) {
+                    const input = document.getElementById(`${type}-${side}-${bp}`);
+                    if (input && input.value) {
                         rules[bp][`${type}_${side}`] = { 
-                            value: parseFloat(value), 
-                            unit: spacingUnit 
+                            value: parseFloat(input.value), 
+                            unit: unit 
                         };
                     }
                 });
             });
             
             // Effects
-            const opacity = document.getElementById(`opacity-${bp}`).value;
-            if (opacity && opacity !== '1') {
-                rules[bp].opacity = parseFloat(opacity);
+            const opacity = document.getElementById(`opacity-${bp}`);
+            if (opacity && opacity.value && opacity.value !== '1') {
+                rules[bp].opacity = parseFloat(opacity.value);
             }
             
-            const boxShadow = document.getElementById(`box-shadow-${bp}`).value;
-            if (boxShadow) {
-                rules[bp].box_shadow = boxShadow;
+            const boxShadow = document.getElementById(`box-shadow-${bp}`);
+            if (boxShadow && boxShadow.value) {
+                rules[bp].box_shadow = boxShadow.value;
             }
             
-            const borderRadius = document.getElementById(`border-radius-${bp}`).value;
-            const borderRadiusUnit = document.getElementById(`border-radius-unit-${bp}`).value;
-            if (borderRadius) {
-                rules[bp].border_radius = { value: parseFloat(borderRadius), unit: borderRadiusUnit };
+            const borderRadius = document.getElementById(`border-radius-${bp}`);
+            const borderRadiusUnit = document.getElementById(`border-radius-unit-${bp}`);
+            if (borderRadius && borderRadius.value) {
+                rules[bp].border_radius = { 
+                    value: parseFloat(borderRadius.value), 
+                    unit: borderRadiusUnit ? borderRadiusUnit.value : 'px' 
+                };
             }
             
             return rules;
         }
         
         /**
-         * Genera CSS dalle regole
+         * Genera CSS dalle regole - VERSIONE CORRETTA
          */
         generateCSSFromRules(rules) {
             const css = [];
             
+            // Posizione
+            if (rules.position) {
+                css.push(`position: ${rules.position}`);
+                
+                if (rules.position_x) {
+                    css.push(`left: ${rules.position_x.value}${rules.position_x.unit}`);
+                }
+                if (rules.position_y) {
+                    css.push(`top: ${rules.position_y.value}${rules.position_y.unit}`);
+                }
+            }
+            
+            // Font
             if (rules.font_size) {
                 css.push(`font-size: ${rules.font_size.value}${rules.font_size.unit}`);
             }
@@ -645,12 +958,29 @@
             if (rules.font_weight) {
                 css.push(`font-weight: ${rules.font_weight}`);
             }
-            if (rules.line_height) {
-                css.push(`line-height: ${rules.line_height.value}${rules.line_height.unit}`);
-            }
             if (rules.text_align) {
                 css.push(`text-align: ${rules.text_align}`);
             }
+            
+            // Element alignment
+            if (rules.element_align) {
+                switch (rules.element_align) {
+                    case 'left':
+                        css.push('margin-left: 0', 'margin-right: auto');
+                        break;
+                    case 'center':
+                        css.push('margin-left: auto', 'margin-right: auto');
+                        break;
+                    case 'right':
+                        css.push('margin-left: auto', 'margin-right: 0');
+                        break;
+                    case 'justify':
+                        css.push('width: 100%');
+                        break;
+                }
+            }
+            
+            // Colors
             if (rules.text_color) {
                 css.push(`color: ${rules.text_color}`);
             }
@@ -660,18 +990,25 @@
             if (rules.border_color) {
                 css.push(`border-color: ${rules.border_color}`);
             }
+            
+            // Display and layout
             if (rules.display) {
                 css.push(`display: ${rules.display}`);
+                
+                if (rules.display === 'flex') {
+                    if (rules.flex_direction) {
+                        css.push(`flex-direction: ${rules.flex_direction}`);
+                    }
+                    if (rules.justify_content) {
+                        css.push(`justify-content: ${rules.justify_content}`);
+                    }
+                    if (rules.align_items) {
+                        css.push(`align-items: ${rules.align_items}`);
+                    }
+                }
             }
-            if (rules.flex_direction) {
-                css.push(`flex-direction: ${rules.flex_direction}`);
-            }
-            if (rules.justify_content) {
-                css.push(`justify-content: ${rules.justify_content}`);
-            }
-            if (rules.align_items) {
-                css.push(`align-items: ${rules.align_items}`);
-            }
+            
+            // Dimensions
             if (rules.width) {
                 css.push(`width: ${rules.width.value}${rules.width.unit}`);
             }
@@ -689,6 +1026,7 @@
                 });
             });
             
+            // Effects
             if (rules.opacity) {
                 css.push(`opacity: ${rules.opacity}`);
             }
@@ -703,7 +1041,7 @@
         }
         
         /**
-         * Bind degli eventi principali
+         * Bind degli eventi principali - VERSIONE CORRETTA
          */
         bindEvents() {
             const toggleBtn = document.getElementById('rem-toggle-btn');
@@ -717,11 +1055,31 @@
             
             // Close modal
             [closeBtn, cancelBtn].forEach(btn => {
-                btn.addEventListener('click', () => this.closeModal());
+                if (btn) {
+                    btn.addEventListener('click', () => this.closeModal());
+                }
             });
             
-            // Save rules
-            saveBtn.addEventListener('click', () => this.saveRules());
+            // Save rules - CORRETTO
+            if (saveBtn) {
+                saveBtn.addEventListener('click', () => this.saveRules());
+            }
+            
+            // Auto proportions toggle
+            document.addEventListener('click', (e) => {
+                if (e.target.id === 'rem-auto-proportions') {
+                    this.autoProportions = !this.autoProportions;
+                    e.target.classList.toggle('active', this.autoProportions);
+                    this.showNotification(
+                        `Proporzioni automatiche ${this.autoProportions ? 'abilitate' : 'disabilitate'}`, 
+                        'info'
+                    );
+                }
+                
+                if (e.target.id === 'rem-apply-auto-proportions') {
+                    this.applyAutoProportionsToAll();
+                }
+            });
             
             // Breakpoint tabs
             document.addEventListener('click', (e) => {
@@ -778,6 +1136,61 @@
             document.addEventListener('mouseout', (e) => {
                 if (this.isActive) {
                     this.removeHighlight(e.target);
+                }
+            });
+        }
+        
+        /**
+         * NUOVO: Applica proporzioni automatiche a tutte le proprietà
+         */
+        applyAutoProportionsToAll() {
+            if (!this.autoProportions) {
+                this.showNotification('Proporzioni automatiche disabilitate', 'warning');
+                return;
+            }
+            
+            const properties = [
+                'font-size', 'width', 'height', 'position-x', 'position-y',
+                'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+                'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+                'border-radius'
+            ];
+            
+            let appliedCount = 0;
+            
+            properties.forEach(property => {
+                const sourceValue = this.getPropertyValue(property, this.currentBreakpoint);
+                if (sourceValue && sourceValue.value) {
+                    this.applyAutoProportions(property);
+                    appliedCount++;
+                }
+            });
+            
+            this.showNotification(`Proporzioni applicate a ${appliedCount} proprietà`, 'success');
+        }
+        
+        /**
+         * Sincronizza color picker e input hex
+         */
+        syncColorInputs(breakpoint) {
+            const colorTypes = ['text-color', 'bg-color', 'border-color'];
+            
+            colorTypes.forEach(type => {
+                const colorInput = document.getElementById(`${type}-${breakpoint}`);
+                const hexInput = document.getElementById(`${type}-hex-${breakpoint}`);
+                
+                if (colorInput && hexInput) {
+                    colorInput.addEventListener('input', (e) => {
+                        hexInput.value = e.target.value;
+                        this.applyPreviewStyles();
+                    });
+                    
+                    hexInput.addEventListener('input', (e) => {
+                        if (/^#([0-9A-F]{3}){1,2}$/i.test(e.target.value)) {
+                            colorInput.value = e.target.value;
+                            this.applyPreviewStyles();
+                        }
+                    });
                 }
             });
         }
@@ -1085,7 +1498,7 @@
         }
         
         /**
-         * Salva regole
+         * Salva regole - VERSIONE CORRETTA
          */
         saveRules() {
             if (!this.selectedElement || !this.currentSelector) {
@@ -1101,9 +1514,25 @@
                 element_id: this.selectedElement.id || '',
                 element_class: this.selectedElement.className || '',
                 scope: scope,
-                post_id: rem_ajax.current_post_id || 0,
+                post_id: (typeof rem_ajax !== 'undefined' && rem_ajax.current_post_id) ? 
+                         rem_ajax.current_post_id : 0,
                 rules: rules
             };
+            
+            // Debug log
+            console.log('Saving rule data:', ruleData);
+            
+            // Verifica che rem_ajax sia definito
+            if (typeof rem_ajax === 'undefined') {
+                this.showNotification('Errore: configurazione AJAX mancante', 'error');
+                return;
+            }
+            
+            // Mostra indicatore di caricamento
+            const saveBtn = document.getElementById('rem-save');
+            const originalText = saveBtn.textContent;
+            saveBtn.textContent = '💾 Salvando...';
+            saveBtn.disabled = true;
             
             // Invia via AJAX
             fetch(rem_ajax.ajax_url, {
@@ -1117,18 +1546,88 @@
                     rule_data: JSON.stringify(ruleData)
                 })
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
+                console.log('Server response:', data);
+                
                 if (data.success) {
                     this.showNotification('Regole salvate con successo!', 'success');
                     this.closeModal();
+                    
+                    // Applica le regole permanentemente
+                    this.applyPermanentStyles();
                 } else {
                     this.showNotification('Errore nel salvataggio: ' + (data.data || 'Errore sconosciuto'), 'error');
                 }
             })
             .catch(error => {
+                console.error('AJAX Error:', error);
                 this.showNotification('Errore di connessione: ' + error.message, 'error');
+            })
+            .finally(() => {
+                // Ripristina il pulsante
+                saveBtn.textContent = originalText;
+                saveBtn.disabled = false;
             });
+        }
+        
+        /**
+         * NUOVO: Applica stili permanentemente
+         */
+        applyPermanentStyles() {
+            if (!this.selectedElement) return;
+            
+            // Rimuovi stili temporanei
+            this.selectedElement.removeAttribute('style');
+            
+            // Aggiungi una classe per identificare l'elemento modificato
+            this.selectedElement.classList.add('rem-styled-element');
+            
+            // Trigger per aggiornare il CSS nella pagina
+            this.refreshPageCSS();
+        }
+        
+        /**
+         * NUOVO: Aggiorna CSS della pagina
+         */
+        refreshPageCSS() {
+            // Rimuovi foglio di stile esistente se presente
+            const existingStyle = document.getElementById('rem-dynamic-css');
+            if (existingStyle) {
+                existingStyle.remove();
+            }
+            
+            // Ricarica il CSS custom dalla fonte
+            if (typeof rem_ajax !== 'undefined') {
+                fetch(rem_ajax.ajax_url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        action: 'rem_get_css',
+                        nonce: rem_ajax.nonce,
+                        post_id: rem_ajax.current_post_id || 0
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data.css) {
+                        const style = document.createElement('style');
+                        style.id = 'rem-dynamic-css';
+                        style.textContent = data.data.css;
+                        document.head.appendChild(style);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error refreshing CSS:', error);
+                });
+            }
         }
         
         /**
@@ -1136,6 +1635,29 @@
          */
         loadExistingRules() {
             // Implementa il caricamento delle regole esistenti
+            if (typeof rem_ajax !== 'undefined') {
+                fetch(rem_ajax.ajax_url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        action: 'rem_get_rules',
+                        nonce: rem_ajax.nonce,
+                        post_id: rem_ajax.current_post_id || 0
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        this.existingRules = data.data || [];
+                        console.log('Loaded existing rules:', this.existingRules);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading existing rules:', error);
+                });
+            }
         }
         
         /**
@@ -1184,11 +1706,11 @@
         }
         
         /**
-         * CSS personalizzato per l'interfaccia
+         * CSS personalizzato per l'interfaccia - VERSIONE ESTESA
          */
         getCustomCSS() {
             return `
-                /* Responsive Element Manager Styles */
+                /* Responsive Element Manager Styles - VERSIONE CORRETTA */
                 #rem-toggle-btn {
                     position: fixed;
                     top: 20px;
@@ -1242,7 +1764,7 @@
                 .rem-modal-content {
                     background: white;
                     width: 100%;
-                    max-width: 1200px;
+                    max-width: 1400px;
                     margin: 0 auto;
                     border-radius: 12px;
                     box-shadow: 0 8px 32px rgba(0,0,0,0.3);
@@ -1269,6 +1791,29 @@
                     margin: 0;
                     font-size: 20px;
                     font-weight: 600;
+                }
+                
+                .rem-header-controls {
+                    display: flex;
+                    align-items: center;
+                    gap: 15px;
+                }
+                
+                .rem-toggle-btn {
+                    background: rgba(255,255,255,0.2);
+                    color: white;
+                    border: 1px solid rgba(255,255,255,0.3);
+                    padding: 6px 12px;
+                    border-radius: 20px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    font-weight: 500;
+                    transition: all 0.3s;
+                }
+                
+                .rem-toggle-btn.active {
+                    background: rgba(255,255,255,0.3);
+                    border-color: rgba(255,255,255,0.5);
                 }
                 
                 #rem-close {
@@ -1487,7 +2032,7 @@
                 /* Controls */
                 .rem-controls-grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
                     gap: 20px;
                 }
                 
@@ -1521,7 +2066,8 @@
                 
                 .rem-input-group {
                     display: flex;
-                    gap: 8px;
+                    gap: 5px;
+                    align-items: center;
                 }
                 
                 .rem-input-group input {
@@ -1531,6 +2077,22 @@
                 .rem-input-group select {
                     flex: 1;
                     min-width: 80px;
+                }
+                
+                .rem-auto-btn {
+                    background: #0073aa;
+                    color: white;
+                    border: none;
+                    padding: 6px 8px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    transition: all 0.2s;
+                    flex-shrink: 0;
+                }
+                
+                .rem-auto-btn:hover {
+                    background: #005177;
                 }
                 
                 .rem-form-group input,
@@ -1548,6 +2110,85 @@
                     outline: none;
                     border-color: #0073aa;
                     box-shadow: 0 0 0 2px rgba(0,115,170,0.1);
+                }
+                
+                /* Position controls */
+                .rem-position-controls {
+                    background: #e8f4f8;
+                    padding: 15px;
+                    border-radius: 6px;
+                    margin-top: 10px;
+                    border-left: 3px solid #0073aa;
+                }
+                
+                .rem-form-row {
+                    display: flex;
+                    gap: 15px;
+                }
+                
+                .rem-form-row .rem-form-group {
+                    flex: 1;
+                    margin-bottom: 0;
+                }
+                
+                /* Alignment controls */
+                .rem-alignment-grid {
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 4px;
+                    border: 1px solid #ddd;
+                    border-radius: 6px;
+                    overflow: hidden;
+                }
+                
+                .rem-align-btn {
+                    background: white;
+                    border: none;
+                    padding: 10px;
+                    cursor: pointer;
+                    font-size: 16px;
+                    transition: all 0.2s;
+                    border-right: 1px solid #ddd;
+                }
+                
+                .rem-align-btn:last-child {
+                    border-right: none;
+                }
+                
+                .rem-align-btn:hover {
+                    background: #f8f9fa;
+                }
+                
+                .rem-align-btn.active {
+                    background: #0073aa;
+                    color: white;
+                }
+                
+                .rem-alignment-buttons {
+                    display: flex;
+                    gap: 4px;
+                    border: 1px solid #ddd;
+                    border-radius: 6px;
+                    overflow: hidden;
+                }
+                
+                .rem-text-align-btn {
+                    background: white;
+                    border: none;
+                    padding: 8px 12px;
+                    cursor: pointer;
+                    font-size: 16px;
+                    transition: all 0.2s;
+                    flex: 1;
+                }
+                
+                .rem-text-align-btn:hover {
+                    background: #f8f9fa;
+                }
+                
+                .rem-text-align-btn.active {
+                    background: #0073aa;
+                    color: white;
                 }
                 
                 /* Color controls */
@@ -1582,34 +2223,6 @@
                 
                 .rem-color-reset:hover {
                     background: #e9ecef;
-                }
-                
-                /* Alignment buttons */
-                .rem-alignment-buttons {
-                    display: flex;
-                    gap: 4px;
-                    border: 1px solid #ddd;
-                    border-radius: 6px;
-                    overflow: hidden;
-                }
-                
-                .rem-align-btn {
-                    background: white;
-                    border: none;
-                    padding: 8px 12px;
-                    cursor: pointer;
-                    font-size: 16px;
-                    transition: all 0.2s;
-                    flex: 1;
-                }
-                
-                .rem-align-btn:hover {
-                    background: #f8f9fa;
-                }
-                
-                .rem-align-btn.active {
-                    background: #0073aa;
-                    color: white;
                 }
                 
                 /* Flex controls */
@@ -1656,15 +2269,31 @@
                     padding: 4px !important;
                 }
                 
-                .rem-margin-top { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); }
-                .rem-margin-right { position: absolute; right: -25px; top: 50%; transform: translateY(-50%); }
-                .rem-margin-bottom { position: absolute; bottom: -15px; left: 50%; transform: translateX(-50%); }
-                .rem-margin-left { position: absolute; left: -25px; top: 50%; transform: translateY(-50%); }
+                .rem-spacing-input-group {
+                    display: flex;
+                    align-items: center;
+                    gap: 2px;
+                }
                 
-                .rem-padding-top { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); }
-                .rem-padding-right { position: absolute; right: -20px; top: 50%; transform: translateY(-50%); }
-                .rem-padding-bottom { position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); }
-                .rem-padding-left { position: absolute; left: -20px; top: 50%; transform: translateY(-50%); }
+                .rem-auto-btn-small {
+                    background: #0073aa;
+                    color: white;
+                    border: none;
+                    padding: 2px 4px;
+                    border-radius: 2px;
+                    cursor: pointer;
+                    font-size: 8px;
+                    transition: all 0.2s;
+                }
+                
+                .rem-auto-btn-small:hover {
+                    background: #005177;
+                }
+                
+                .rem-margin-top, .rem-padding-top { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); }
+                .rem-margin-right, .rem-padding-right { position: absolute; right: -25px; top: 50%; transform: translateY(-50%); }
+                .rem-margin-bottom, .rem-padding-bottom { position: absolute; bottom: -15px; left: 50%; transform: translateX(-50%); }
+                .rem-margin-left, .rem-padding-left { position: absolute; left: -25px; top: 50%; transform: translateY(-50%); }
                 
                 .rem-spacing-units {
                     margin-top: 10px;
@@ -1684,6 +2313,7 @@
                     padding: 15px;
                     background: #f8f9fa;
                     border-radius: 6px;
+                    flex-wrap: wrap;
                 }
                 
                 /* Modal footer */
@@ -1738,6 +2368,21 @@
                     background: #c82333;
                 }
                 
+                .rem-btn-info {
+                    background: #17a2b8;
+                    color: white;
+                }
+                
+                .rem-btn-info:hover {
+                    background: #138496;
+                }
+                
+                .rem-btn:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                    transform: none !important;
+                }
+                
                 /* Element states */
                 body.rem-selecting {
                     cursor: crosshair !important;
@@ -1759,6 +2404,26 @@
                     background: rgba(220, 50, 50, 0.1) !important;
                 }
                 
+                /* Classi di allineamento */
+                .rem-align-left {
+                    margin-left: 0 !important;
+                    margin-right: auto !important;
+                }
+                
+                .rem-align-center {
+                    margin-left: auto !important;
+                    margin-right: auto !important;
+                }
+                
+                .rem-align-right {
+                    margin-left: auto !important;
+                    margin-right: 0 !important;
+                }
+                
+                .rem-align-justify {
+                    width: 100% !important;
+                }
+                
                 /* Notifications */
                 .rem-notification {
                     position: fixed;
@@ -1776,6 +2441,7 @@
                     opacity: 0;
                     transition: all 0.3s ease;
                     border-left: 4px solid #0073aa;
+                    max-width: 300px;
                 }
                 
                 .rem-notification-show {
@@ -1795,17 +2461,23 @@
                     border-left-color: #ffc107;
                 }
                 
+                .rem-notification-info {
+                    border-left-color: #17a2b8;
+                }
+                
                 .rem-notification-icon {
                     font-size: 18px;
+                    flex-shrink: 0;
                 }
                 
                 .rem-notification-message {
                     font-weight: 500;
                     color: #333;
+                    word-wrap: break-word;
                 }
                 
                 /* Responsive */
-                @media (max-width: 1200px) {
+                @media (max-width: 1400px) {
                     .rem-controls-grid {
                         grid-template-columns: repeat(2, 1fr);
                     }
@@ -1851,16 +2523,48 @@
                         justify-content: center;
                     }
                     
+                    .rem-form-row {
+                        flex-direction: column;
+                        gap: 0;
+                    }
+                    
+                    .rem-preview-section {
+                        flex-direction: column;
+                    }
+                    
                     #rem-toggle-btn {
                         width: 50px;
                         height: 50px;
                         font-size: 20px;
                     }
+                    
+                    .rem-alignment-grid {
+                        grid-template-columns: repeat(2, 1fr);
+                    }
+                    
+                    .rem-input-group {
+                        flex-direction: column;
+                        gap: 8px;
+                    }
+                    
+                    .rem-spacing-input-group {
+                        flex-direction: column;
+                        gap: 2px;
+                    }
+                    
+                    .rem-auto-btn-small {
+                        align-self: center;
+                    }
                 }
                 
                 @media (max-width: 480px) {
-                    .rem-input-group {
+                    .rem-modal-header h3 {
+                        font-size: 16px;
+                    }
+                    
+                    .rem-header-controls {
                         flex-direction: column;
+                        gap: 8px;
                     }
                     
                     .rem-color-control {
@@ -1878,6 +2582,123 @@
                     .rem-padding-box {
                         padding: 25px 10px;
                     }
+                    
+                    .rem-notification {
+                        right: 10px;
+                        left: 10px;
+                        max-width: none;
+                        transform: translateY(-100px);
+                    }
+                    
+                    .rem-notification-show {
+                        transform: translateY(0);
+                    }
+                }
+                
+                /* Loading animation */
+                .rem-loading-spinner {
+                    display: inline-block;
+                    width: 16px;
+                    height: 16px;
+                    border: 2px solid #f3f3f3;
+                    border-top: 2px solid #0073aa;
+                    border-radius: 50%;
+                    animation: remSpin 1s linear infinite;
+                }
+                
+                @keyframes remSpin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                
+                /* Accessibility improvements */
+                .rem-btn:focus,
+                .rem-form-group input:focus,
+                .rem-form-group select:focus {
+                    outline: 2px solid #0073aa;
+                    outline-offset: 2px;
+                }
+                
+                .rem-modal-content:focus {
+                    outline: none;
+                }
+                
+                /* High contrast mode support */
+                @media (prefers-contrast: high) {
+                    .rem-modal-content {
+                        border: 2px solid #000;
+                    }
+                    
+                    .rem-btn {
+                        border: 2px solid currentColor;
+                    }
+                    
+                    .rem-form-group input,
+                    .rem-form-group select {
+                        border: 2px solid #000;
+                    }
+                }
+                
+                /* Reduced motion support */
+                @media (prefers-reduced-motion: reduce) {
+                    .rem-modal-content,
+                    .rem-notification,
+                    .rem-btn,
+                    #rem-toggle-btn {
+                        animation: none;
+                        transition: none;
+                    }
+                }
+                
+                /* Dark mode support */
+                @media (prefers-color-scheme: dark) {
+                    .rem-modal-content {
+                        background: #2c3e50;
+                        color: #ecf0f1;
+                    }
+                    
+                    .rem-modal-header {
+                        border-bottom-color: #34495e;
+                    }
+                    
+                    .rem-modal-footer {
+                        border-top-color: #34495e;
+                        background: #34495e;
+                    }
+                    
+                    .rem-element-info {
+                        background: #34495e;
+                        border-left-color: #3498db;
+                    }
+                    
+                    .rem-control-group {
+                        background: #34495e;
+                        border-color: #4a5f7a;
+                    }
+                    
+                    .rem-form-group input,
+                    .rem-form-group select {
+                        background: #4a5f7a;
+                        border-color: #5a6f8a;
+                        color: #ecf0f1;
+                    }
+                    
+                    .rem-notification {
+                        background: #34495e;
+                        color: #ecf0f1;
+                    }
+                    
+                    .rem-selector-btn {
+                        background: #4a5f7a;
+                        border-color: #5a6f8a;
+                        color: #ecf0f1;
+                    }
+                    
+                    .rem-align-btn,
+                    .rem-text-align-btn {
+                        background: #4a5f7a;
+                        color: #ecf0f1;
+                    }
                 }
             `;
         }
@@ -1888,6 +2709,9 @@
         // Verifica che gli script WordPress siano caricati
         if (typeof rem_ajax !== 'undefined') {
             window.REM = new ResponsiveElementManager();
+            console.log('Responsive Element Manager inizializzato correttamente');
+        } else {
+            console.error('rem_ajax non definito - controllare enqueue degli script');
         }
     });
     

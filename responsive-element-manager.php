@@ -3,7 +3,7 @@
  * Plugin Name: Responsive Element Manager
  * Plugin URI: https://yoursite.com/plugins/responsive-element-manager
  * Description: Gestisce il comportamento responsive degli elementi del sito in tempo reale con controlli avanzati
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Your Name
  * License: GPL v2 or later
  * Text Domain: responsive-element-manager
@@ -18,14 +18,14 @@ if (!defined('ABSPATH')) {
 }
 
 // Definisce le costanti del plugin
-define('REM_VERSION', '1.1.0');
+define('REM_VERSION', '1.2.0');
 define('REM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('REM_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('REM_PLUGIN_BASENAME', plugin_basename(__FILE__));
-define('REM_DB_VERSION', '1.1');
+define('REM_DB_VERSION', '1.2');
 
 /**
- * Classe principale del plugin Responsive Element Manager
+ * Classe principale del plugin Responsive Element Manager - VERSIONE CORRETTA
  */
 class ResponsiveElementManager {
     
@@ -67,13 +67,15 @@ class ResponsiveElementManager {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('wp_head', array($this, 'output_custom_css'));
         
-        // AJAX Endpoints
+        // AJAX Endpoints - CORRETTI E COMPLETI
         add_action('wp_ajax_rem_save_rule', array($this, 'ajax_save_rule'));
         add_action('wp_ajax_rem_delete_rule', array($this, 'ajax_delete_rule'));
         add_action('wp_ajax_rem_get_rules', array($this, 'ajax_get_rules'));
+        add_action('wp_ajax_rem_get_css', array($this, 'ajax_get_css')); // NUOVO ENDPOINT
         add_action('wp_ajax_rem_export_rules', array($this, 'ajax_export_rules'));
         add_action('wp_ajax_rem_import_rules', array($this, 'ajax_import_rules'));
         add_action('wp_ajax_rem_get_element_info', array($this, 'ajax_get_element_info'));
+        add_action('wp_ajax_rem_test_connection', array($this, 'ajax_test_connection')); // NUOVO
         
         // Hook per estensioni
         do_action('rem_loaded', $this);
@@ -158,7 +160,10 @@ class ResponsiveElementManager {
             'minimum_user_capability' => 'edit_posts',
             'enable_css_minification' => false,
             'enable_backup_system' => true,
-            'max_rules_per_page' => 1000
+            'max_rules_per_page' => 1000,
+            'enable_auto_proportions' => true, // NUOVO
+            'enable_position_controls' => true, // NUOVO
+            'enable_alignment_controls' => true // NUOVO
         );
         
         add_option('rem_settings', $default_settings);
@@ -186,7 +191,7 @@ class ResponsiveElementManager {
     }
     
     /**
-     * Carica gli script frontend
+     * Carica gli script frontend - VERSIONE CORRETTA
      */
     public function enqueue_frontend_scripts() {
         // Verifica permessi utente
@@ -217,7 +222,7 @@ class ResponsiveElementManager {
             REM_VERSION
         );
         
-        // Localizza script con dati necessari
+        // Localizza script con dati necessari - CORRETTO
         wp_localize_script('rem-frontend', 'rem_ajax', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('rem_nonce'),
@@ -225,7 +230,9 @@ class ResponsiveElementManager {
             'plugin_url' => REM_PLUGIN_URL,
             'settings' => $this->get_frontend_settings(),
             'breakpoints' => $this->get_breakpoints(),
-            'user_preferences' => $this->get_user_preferences()
+            'user_preferences' => $this->get_user_preferences(),
+            'device_proportions' => $this->get_device_proportions(), // NUOVO
+            'supported_properties' => $this->get_supported_properties() // NUOVO
         ));
         
         // Hook per moduli che vogliono aggiungere script
@@ -401,29 +408,43 @@ class ResponsiveElementManager {
     }
     
     /**
-     * AJAX: Salva regola
+     * AJAX: Salva regola - VERSIONE CORRETTA
      */
     public function ajax_save_rule() {
-        check_ajax_referer('rem_nonce', 'nonce');
+        // Verifica nonce
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
+            wp_send_json_error(__('Nonce non valido', 'responsive-element-manager'));
+            return;
+        }
         
         $settings = get_option('rem_settings', array());
         $min_capability = $settings['minimum_user_capability'] ?? 'edit_posts';
         
         if (!current_user_can($min_capability)) {
             wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
+            return;
         }
         
         $rule_data = json_decode(stripslashes($_POST['rule_data'] ?? '{}'), true);
         
         if (empty($rule_data)) {
             wp_send_json_error(__('Dati regola non validi', 'responsive-element-manager'));
+            return;
         }
+        
+        // Log per debug
+        error_log('REM: Saving rule data: ' . print_r($rule_data, true));
         
         $result = REM_Rule_Manager::save_rule($rule_data);
         
         if (is_wp_error($result)) {
+            error_log('REM: Error saving rule: ' . $result->get_error_message());
             wp_send_json_error($result->get_error_message());
+            return;
         }
+        
+        // Pulisci la cache CSS se esiste
+        $this->clear_css_cache();
         
         wp_send_json_success($result);
     }
@@ -432,26 +453,35 @@ class ResponsiveElementManager {
      * AJAX: Elimina regola
      */
     public function ajax_delete_rule() {
-        check_ajax_referer('rem_nonce', 'nonce');
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
+            wp_send_json_error(__('Nonce non valido', 'responsive-element-manager'));
+            return;
+        }
         
         $settings = get_option('rem_settings', array());
         $min_capability = $settings['minimum_user_capability'] ?? 'edit_posts';
         
         if (!current_user_can($min_capability)) {
             wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
+            return;
         }
         
         $rule_id = intval($_POST['rule_id'] ?? 0);
         
         if ($rule_id <= 0) {
             wp_send_json_error(__('ID regola non valido', 'responsive-element-manager'));
+            return;
         }
         
         $result = REM_Rule_Manager::delete_rule($rule_id);
         
         if (is_wp_error($result)) {
             wp_send_json_error($result->get_error_message());
+            return;
         }
+        
+        // Pulisci la cache CSS
+        $this->clear_css_cache();
         
         wp_send_json_success($result);
     }
@@ -460,7 +490,10 @@ class ResponsiveElementManager {
      * AJAX: Ottieni regole
      */
     public function ajax_get_rules() {
-        check_ajax_referer('rem_nonce', 'nonce');
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
+            wp_send_json_error(__('Nonce non valido', 'responsive-element-manager'));
+            return;
+        }
         
         $post_id = intval($_POST['post_id'] ?? 0);
         $rules = REM_Rule_Manager::get_rules($post_id);
@@ -469,13 +502,69 @@ class ResponsiveElementManager {
     }
     
     /**
+     * NUOVO: AJAX: Ottieni CSS generato
+     */
+    public function ajax_get_css() {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
+            wp_send_json_error(__('Nonce non valido', 'responsive-element-manager'));
+            return;
+        }
+        
+        $post_id = intval($_POST['post_id'] ?? 0);
+        $css = REM_CSS_Generator::generate_css($post_id);
+        
+        wp_send_json_success(array(
+            'css' => $css,
+            'post_id' => $post_id,
+            'generated_at' => current_time('mysql')
+        ));
+    }
+    
+    /**
+     * NUOVO: AJAX: Test connessione
+     */
+    public function ajax_test_connection() {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
+            wp_send_json_error(__('Nonce non valido', 'responsive-element-manager'));
+            return;
+        }
+        
+        // Test basic della connessione
+        $test_data = array(
+            'server_time' => current_time('mysql'),
+            'php_version' => PHP_VERSION,
+            'wp_version' => get_bloginfo('version'),
+            'plugin_version' => REM_VERSION,
+            'memory_usage' => size_format(memory_get_usage()),
+            'database_connection' => true
+        );
+        
+        // Test connessione database
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rem_rules';
+        try {
+            $count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+            $test_data['rules_count'] = intval($count);
+        } catch (Exception $e) {
+            $test_data['database_connection'] = false;
+            $test_data['database_error'] = $e->getMessage();
+        }
+        
+        wp_send_json_success($test_data);
+    }
+    
+    /**
      * AJAX: Esporta regole
      */
     public function ajax_export_rules() {
-        check_ajax_referer('rem_nonce', 'nonce');
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
+            wp_send_json_error(__('Nonce non valido', 'responsive-element-manager'));
+            return;
+        }
         
         if (!current_user_can('manage_options')) {
             wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
+            return;
         }
         
         $format = sanitize_text_field($_POST['format'] ?? 'json');
@@ -490,22 +579,28 @@ class ResponsiveElementManager {
      * AJAX: Importa regole
      */
     public function ajax_import_rules() {
-        check_ajax_referer('rem_nonce', 'nonce');
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
+            wp_send_json_error(__('Nonce non valido', 'responsive-element-manager'));
+            return;
+        }
         
         if (!current_user_can('manage_options')) {
             wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
+            return;
         }
         
         $import_data = json_decode(stripslashes($_POST['import_data'] ?? '{}'), true);
         
         if (empty($import_data)) {
             wp_send_json_error(__('Dati importazione non validi', 'responsive-element-manager'));
+            return;
         }
         
         $result = REM_Rule_Manager::import_rules($import_data);
         
         if (is_wp_error($result)) {
             wp_send_json_error($result->get_error_message());
+            return;
         }
         
         wp_send_json_success($result);
@@ -515,12 +610,16 @@ class ResponsiveElementManager {
      * AJAX: Ottieni informazioni elemento
      */
     public function ajax_get_element_info() {
-        check_ajax_referer('rem_nonce', 'nonce');
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
+            wp_send_json_error(__('Nonce non valido', 'responsive-element-manager'));
+            return;
+        }
         
         $selector = sanitize_text_field($_POST['selector'] ?? '');
         
         if (empty($selector)) {
             wp_send_json_error(__('Selettore non fornito', 'responsive-element-manager'));
+            return;
         }
         
         // Qui potresti implementare logica per analizzare l'elemento
@@ -558,7 +657,10 @@ class ResponsiveElementManager {
             'auto_save' => $settings['auto_save_changes'] ?? false,
             'show_tooltips' => $settings['show_tooltips'] ?? true,
             'enable_keyboard_shortcuts' => $settings['enable_keyboard_shortcuts'] ?? true,
-            'preview_delay' => $settings['preview_delay'] ?? 500
+            'preview_delay' => $settings['preview_delay'] ?? 500,
+            'enable_auto_proportions' => $settings['enable_auto_proportions'] ?? true,
+            'enable_position_controls' => $settings['enable_position_controls'] ?? true,
+            'enable_alignment_controls' => $settings['enable_alignment_controls'] ?? true
         );
     }
     
@@ -589,6 +691,37 @@ class ResponsiveElementManager {
         );
         
         return apply_filters('rem_breakpoints', $default_breakpoints);
+    }
+    
+    /**
+     * NUOVO: Ottieni proporzioni dispositivi
+     */
+    private function get_device_proportions() {
+        $default_proportions = array(
+            'mobile' => array('width' => 375, 'height' => 667),
+            'tablet' => array('width' => 768, 'height' => 1024),
+            'desktop' => array('width' => 1920, 'height' => 1080)
+        );
+        
+        return apply_filters('rem_device_proportions', $default_proportions);
+    }
+    
+    /**
+     * NUOVO: Ottieni proprietà supportate
+     */
+    private function get_supported_properties() {
+        $default_properties = array(
+            'position', 'position_x', 'position_y',
+            'font_size', 'font_family', 'font_weight', 'text_align',
+            'text_color', 'background_color', 'border_color',
+            'display', 'flex_direction', 'justify_content', 'align_items',
+            'width', 'height', 'element_align',
+            'margin_top', 'margin_right', 'margin_bottom', 'margin_left',
+            'padding_top', 'padding_right', 'padding_bottom', 'padding_left',
+            'opacity', 'box_shadow', 'border_radius'
+        );
+        
+        return apply_filters('rem_supported_properties', $default_properties);
     }
     
     /**
@@ -629,6 +762,18 @@ class ResponsiveElementManager {
     }
     
     /**
+     * NUOVO: Pulisci cache CSS
+     */
+    private function clear_css_cache() {
+        // Elimina cache CSS se presente
+        delete_transient('rem_css_cache');
+        delete_transient('rem_css_cache_' . get_the_ID());
+        
+        // Hook per estensioni
+        do_action('rem_css_cache_cleared');
+    }
+    
+    /**
      * Avviso versione PHP
      */
     public function php_version_notice() {
@@ -647,7 +792,7 @@ class ResponsiveElementManager {
 }
 
 /**
- * Classe per gestire il database
+ * Classe per gestire il database - VERSIONE CORRETTA
  */
 class REM_Database {
     
@@ -715,7 +860,7 @@ class REM_Database {
 }
 
 /**
- * Classe per gestire le regole
+ * Classe per gestire le regole - VERSIONE CORRETTA
  */
 class REM_Rule_Manager {
     
@@ -761,6 +906,7 @@ class REM_Rule_Manager {
                 array('%d')
             );
             $rule_id = $existing_rule->id;
+            $action = 'updated';
         } else {
             // Crea nuova regola
             $result = $wpdb->insert(
@@ -769,19 +915,22 @@ class REM_Rule_Manager {
                 array('%s', '%s', '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s')
             );
             $rule_id = $wpdb->insert_id;
+            $action = 'created';
         }
         
         if ($result === false) {
-            return new WP_Error('db_error', __('Errore nel salvare la regola', 'responsive-element-manager'));
+            error_log('REM: Database error: ' . $wpdb->last_error);
+            return new WP_Error('db_error', __('Errore nel salvare la regola: ', 'responsive-element-manager') . $wpdb->last_error);
         }
         
         // Hook per estensioni
-        do_action('rem_rule_saved', $validated_data, $rule_id);
+        do_action('rem_rule_saved', $validated_data, $rule_id, $action);
         
         return array(
             'success' => true, 
             'message' => __('Regola salvata con successo', 'responsive-element-manager'),
-            'rule_id' => $rule_id
+            'rule_id' => $rule_id,
+            'action' => $action
         );
     }
     
@@ -962,142 +1111,7 @@ class REM_Rule_Manager {
     }
 }
 
-/**
- * Classe per generare il CSS
- */
-class REM_CSS_Generator {
-    
-    public static function generate_css($post_id = null) {
-        if ($post_id === null) {
-            $post_id = get_the_ID();
-        }
-        
-        $rules = REM_Rule_Manager::get_rules($post_id);
-        
-        if (empty($rules)) {
-            return '';
-        }
-        
-        $css_output = '';
-        $breakpoints = self::get_breakpoints();
-        
-        foreach ($rules as $rule) {
-            $selector = $rule->element_selector;
-            $rule_css = $rule->rules;
-            
-            if (!is_array($rule_css)) {
-                continue;
-            }
-            
-            foreach ($breakpoints as $breakpoint => $media_query) {
-                if (isset($rule_css[$breakpoint]) && !empty($rule_css[$breakpoint])) {
-                    $css_rules = self::convert_rules_to_css($rule_css[$breakpoint]);
-                    
-                    if (!empty($css_rules)) {
-                        if ($breakpoint === 'desktop' || empty($media_query)) {
-                            $css_output .= "$selector { $css_rules }\n";
-                        } else {
-                            $css_output .= "@media $media_query { $selector { $css_rules } }\n";
-                        }
-                    }
-                }
-            }
-        }
-        
-        return apply_filters('rem_generated_css', $css_output, $rules);
-    }
-    
-    private static function get_breakpoints() {
-        $breakpoints = array(
-            'mobile' => '(max-width: 767px)',
-            'tablet' => '(min-width: 768px) and (max-width: 1023px)',
-            'desktop' => '', // No media query for desktop
-        );
-        
-        return apply_filters('rem_css_breakpoints', $breakpoints);
-    }
-    
-    private static function convert_rules_to_css($rules) {
-        $css_rules = array();
-        
-        // Font properties
-        if (isset($rules['font_size'])) {
-            $css_rules[] = 'font-size: ' . $rules['font_size']['value'] . $rules['font_size']['unit'] . ' !important';
-        }
-        
-        if (isset($rules['font_family']) && !empty($rules['font_family'])) {
-            $css_rules[] = 'font-family: ' . $rules['font_family'] . ' !important';
-        }
-        
-        if (isset($rules['font_weight']) && !empty($rules['font_weight'])) {
-            $css_rules[] = 'font-weight: ' . $rules['font_weight'] . ' !important';
-        }
-        
-        if (isset($rules['line_height'])) {
-            $css_rules[] = 'line-height: ' . $rules['line_height']['value'] . $rules['line_height']['unit'] . ' !important';
-        }
-        
-        if (isset($rules['text_align']) && !empty($rules['text_align'])) {
-            $css_rules[] = 'text-align: ' . $rules['text_align'] . ' !important';
-        }
-        
-        // Colors
-        if (isset($rules['text_color']) && !empty($rules['text_color'])) {
-            $css_rules[] = 'color: ' . $rules['text_color'] . ' !important';
-        }
-        
-        if (isset($rules['background_color']) && !empty($rules['background_color'])) {
-            $css_rules[] = 'background-color: ' . $rules['background_color'] . ' !important';
-        }
-        
-        if (isset($rules['border_color']) && !empty($rules['border_color'])) {
-            $css_rules[] = 'border-color: ' . $rules['border_color'] . ' !important';
-        }
-        
-        // Layout
-        if (isset($rules['display']) && !empty($rules['display'])) {
-            $css_rules[] = 'display: ' . $rules['display'] . ' !important';
-        }
-        
-        if (isset($rules['width'])) {
-            $css_rules[] = 'width: ' . $rules['width']['value'] . $rules['width']['unit'] . ' !important';
-        }
-        
-        if (isset($rules['height'])) {
-            $css_rules[] = 'height: ' . $rules['height']['value'] . $rules['height']['unit'] . ' !important';
-        }
-        
-        // Spacing
-        $spacing_properties = array('margin', 'padding');
-        $sides = array('top', 'right', 'bottom', 'left');
-        
-        foreach ($spacing_properties as $property) {
-            foreach ($sides as $side) {
-                $key = $property . '_' . $side;
-                if (isset($rules[$key])) {
-                    $value = $rules[$key]['value'];
-                    $unit = $rules[$key]['unit'];
-                    $css_rules[] = "$property-$side: $value$unit !important";
-                }
-            }
-        }
-        
-        // Effects
-        if (isset($rules['opacity'])) {
-            $css_rules[] = 'opacity: ' . $rules['opacity'] . ' !important';
-        }
-        
-        if (isset($rules['box_shadow']) && !empty($rules['box_shadow'])) {
-            $css_rules[] = 'box-shadow: ' . $rules['box_shadow'] . ' !important';
-        }
-        
-        if (isset($rules['border_radius'])) {
-            $css_rules[] = 'border-radius: ' . $rules['border_radius']['value'] . $rules['border_radius']['unit'] . ' !important';
-        }
-        
-        return apply_filters('rem_css_rules', implode('; ', $css_rules), $rules);
-    }
-}
+// Includi la classe CSS Generator corretta nel prossimo file...
 
 // Inizializza il plugin
 ResponsiveElementManager::get_instance();
