@@ -1,8 +1,16 @@
 <?php
 /**
- * Classe per generare il CSS - VERSIONE CORRETTA E COMPLETA
+ * Classe per generare il CSS - VERSIONE COMPLETA E CORRETTA
+ * File: includes/class-rem-css-generator.php
+ * 
  * Supporta posizionamento x,y, allineamento, proporzioni automatiche
  */
+
+// Impedisce l'accesso diretto
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 class REM_CSS_Generator {
     
     /**
@@ -13,11 +21,16 @@ class REM_CSS_Generator {
             $post_id = get_the_ID();
         }
         
+        // Verifica che le tabelle esistano
+        if (!REM_Database::tables_exist()) {
+            return '';
+        }
+        
         // Verifica cache CSS
         $cache_key = 'rem_css_cache_' . $post_id;
         $cached_css = get_transient($cache_key);
         
-        if ($cached_css !== false && !defined('WP_DEBUG') || !WP_DEBUG) {
+        if ($cached_css !== false && (!defined('WP_DEBUG') || !WP_DEBUG)) {
             return $cached_css;
         }
         
@@ -95,7 +108,7 @@ class REM_CSS_Generator {
     private static function convert_rules_to_css($rules) {
         $css_rules = array();
         
-        // POSIZIONAMENTO - NUOVO
+        // POSIZIONAMENTO - SUPPORTO COMPLETO X,Y
         if (isset($rules['position']) && !empty($rules['position'])) {
             $css_rules[] = 'position: ' . $rules['position'] . ' !important';
             
@@ -146,7 +159,7 @@ class REM_CSS_Generator {
             $css_rules[] = 'text-align: ' . $rules['text_align'] . ' !important';
         }
         
-        // ELEMENT ALIGNMENT - NUOVO
+        // ELEMENT ALIGNMENT - SUPPORTO UNIVERSALE
         if (isset($rules['element_align']) && !empty($rules['element_align'])) {
             switch ($rules['element_align']) {
                 case 'left':
@@ -219,7 +232,7 @@ class REM_CSS_Generator {
             }
         }
         
-        // SPACING - Margin e Padding
+        // SPACING - Margin e Padding con supporto completo
         $spacing_properties = array('margin', 'padding');
         $sides = array('top', 'right', 'bottom', 'left');
         
@@ -275,15 +288,30 @@ class REM_CSS_Generator {
             $css_rules[] = 'transition: ' . $rules['transition'] . ' !important';
         }
         
+        // Z-INDEX - per layering
+        if (isset($rules['z_index']) && $rules['z_index'] !== '') {
+            $css_rules[] = 'z-index: ' . intval($rules['z_index']) . ' !important';
+        }
+        
+        // OVERFLOW
+        if (isset($rules['overflow']) && !empty($rules['overflow'])) {
+            $css_rules[] = 'overflow: ' . $rules['overflow'] . ' !important';
+        }
+        
+        // VISIBILITY
+        if (isset($rules['visibility']) && !empty($rules['visibility'])) {
+            $css_rules[] = 'visibility: ' . $rules['visibility'] . ' !important';
+        }
+        
         return apply_filters('rem_css_rules', implode('; ', $css_rules), $rules);
     }
     
     /**
-     * CSS per classi di allineamento - NUOVO
+     * CSS per classi di allineamento e utility
      */
     private static function get_alignment_css() {
         return "
-        /* Responsive Element Manager - Classi di Allineamento */
+        /* Responsive Element Manager - CSS Utility Classes */
         .rem-align-left {
             margin-left: 0 !important;
             margin-right: auto !important;
@@ -325,19 +353,7 @@ class REM_CSS_Generator {
             transition: all 0.3s ease !important;
         }
         
-        .rem-hidden-mobile {
-            display: none !important;
-        }
-        
-        .rem-hidden-tablet {
-            display: none !important;
-        }
-        
-        .rem-hidden-desktop {
-            display: none !important;
-        }
-        
-        /* Media queries per classi responsive */
+        /* Classi di visibilità responsive */
         @media (max-width: 767px) {
             .rem-hidden-mobile {
                 display: none !important;
@@ -364,11 +380,85 @@ class REM_CSS_Generator {
                 display: block !important;
             }
         }
+        
+        /* Hover effects supporto */
+        .rem-hover-effect {
+            transition: transform 0.3s ease, opacity 0.3s ease !important;
+        }
+        
+        .rem-hover-effect:hover {
+            transform: var(--rem-hover-transform, none) !important;
+        }
+        
+        /* Responsive containers */
+        .rem-container-fluid {
+            width: 100% !important;
+            max-width: none !important;
+        }
+        
+        .rem-container {
+            width: 100% !important;
+            max-width: 1200px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+        }
+        
+        /* Flex utilities */
+        .rem-flex {
+            display: flex !important;
+        }
+        
+        .rem-flex-column {
+            flex-direction: column !important;
+        }
+        
+        .rem-flex-wrap {
+            flex-wrap: wrap !important;
+        }
+        
+        .rem-justify-center {
+            justify-content: center !important;
+        }
+        
+        .rem-justify-between {
+            justify-content: space-between !important;
+        }
+        
+        .rem-align-center {
+            align-items: center !important;
+        }
+        
+        /* Grid utilities */
+        .rem-grid {
+            display: grid !important;
+        }
+        
+        .rem-grid-cols-1 { grid-template-columns: repeat(1, 1fr) !important; }
+        .rem-grid-cols-2 { grid-template-columns: repeat(2, 1fr) !important; }
+        .rem-grid-cols-3 { grid-template-columns: repeat(3, 1fr) !important; }
+        .rem-grid-cols-4 { grid-template-columns: repeat(4, 1fr) !important; }
+        
+        /* Spacing utilities responsive */
+        @media (max-width: 767px) {
+            .rem-mobile-p-0 { padding: 0 !important; }
+            .rem-mobile-p-1 { padding: 0.25rem !important; }
+            .rem-mobile-p-2 { padding: 0.5rem !important; }
+            .rem-mobile-p-3 { padding: 0.75rem !important; }
+            .rem-mobile-p-4 { padding: 1rem !important; }
+            .rem-mobile-p-5 { padding: 1.25rem !important; }
+            
+            .rem-mobile-m-0 { margin: 0 !important; }
+            .rem-mobile-m-1 { margin: 0.25rem !important; }
+            .rem-mobile-m-2 { margin: 0.5rem !important; }
+            .rem-mobile-m-3 { margin: 0.75rem !important; }
+            .rem-mobile-m-4 { margin: 1rem !important; }
+            .rem-mobile-m-5 { margin: 1.25rem !important; }
+        }
         ";
     }
     
     /**
-     * NUOVO: Genera CSS per una singola regola
+     * Genera CSS per una singola regola
      */
     public static function generate_rule_css($rule_data, $selector, $breakpoint = null) {
         if (!is_array($rule_data)) {
@@ -412,7 +502,7 @@ class REM_CSS_Generator {
     }
     
     /**
-     * NUOVO: Calcola proporzioni automatiche
+     * Calcola proporzioni automatiche per valori tra breakpoint
      */
     public static function calculate_proportional_value($source_value, $source_breakpoint, $target_breakpoint, $property_type = 'general') {
         $breakpoints = self::get_breakpoints();
@@ -449,7 +539,7 @@ class REM_CSS_Generator {
     }
     
     /**
-     * NUOVO: Ottiene proprietà supportate con metadati
+     * Ottiene proprietà supportate con metadati per il CSS generator
      */
     public static function get_supported_properties() {
         return array(
@@ -460,7 +550,7 @@ class REM_CSS_Generator {
             ),
             'position_x' => array(
                 'type' => 'dimension',
-                'group' => 'layout',
+                'group' => 'layout', 
                 'proportional' => true,
                 'proportion_type' => 'horizontal'
             ),
@@ -596,7 +686,7 @@ class REM_CSS_Generator {
     }
     
     /**
-     * NUOVO: Minifica CSS per produzione
+     * Minifica CSS per produzione
      */
     public static function minify_css($css) {
         if (empty($css)) {
@@ -617,7 +707,7 @@ class REM_CSS_Generator {
     }
     
     /**
-     * NUOVO: Valida CSS generato
+     * Valida CSS generato
      */
     public static function validate_css($css) {
         if (empty($css)) {
@@ -647,7 +737,7 @@ class REM_CSS_Generator {
     }
     
     /**
-     * NUOVO: Cache del CSS
+     * Pulisce cache CSS
      */
     public static function clear_css_cache($post_id = null) {
         if ($post_id) {
@@ -660,10 +750,56 @@ class REM_CSS_Generator {
         
         do_action('rem_css_cache_cleared', $post_id);
     }
+    
+    /**
+     * Ottiene statistiche di utilizzo CSS
+     */
+    public static function get_css_stats() {
+        if (!REM_Database::tables_exist()) {
+            return array('error' => 'Database non disponibile');
+        }
+        
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rem_rules';
+        
+        $stats = array();
+        
+        // Conteggi base
+        $stats['total_rules'] = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+        $stats['active_rules'] = $wpdb->get_var("SELECT COUNT(*) FROM $table_name WHERE is_active = 1");
+        
+        // Analisi proprietà più usate
+        $rules_data = $wpdb->get_col("SELECT rules FROM $table_name WHERE is_active = 1");
+        $property_usage = array();
+        
+        foreach ($rules_data as $rule_json) {
+            $rule = json_decode($rule_json, true);
+            if (is_array($rule)) {
+                foreach ($rule as $breakpoint => $properties) {
+                    if (is_array($properties)) {
+                        foreach (array_keys($properties) as $property) {
+                            $property_usage[$property] = ($property_usage[$property] ?? 0) + 1;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Ordina per utilizzo
+        arsort($property_usage);
+        $stats['most_used_properties'] = array_slice($property_usage, 0, 10, true);
+        
+        // Dimensione CSS generato
+        $css = self::generate_css();
+        $stats['css_size'] = strlen($css);
+        $stats['css_size_formatted'] = size_format($stats['css_size']);
+        
+        return $stats;
+    }
 }
 
 /**
- * NUOVO: Classe per gestire utilità CSS avanzate
+ * Classe per gestire utilità CSS avanzate
  */
 class REM_CSS_Utils {
     
@@ -757,9 +893,7 @@ class REM_CSS_Utils {
     }
 }
 
-/**
- * NUOVO: Hook e filtri per estensioni
- */
+// Hook e filtri per estensioni
 add_filter('rem_css_before_output', function($css) {
     // Permette ai moduli di modificare il CSS prima dell'output
     return $css;
@@ -776,9 +910,9 @@ add_filter('rem_css_properties', function($properties) {
 
 // Pulisci cache CSS quando una regola viene salvata o eliminata
 add_action('rem_rule_saved', function($rule_data, $rule_id) {
-    REM_CSS_Generator::clear_css_cache($rule_data['post_id']);
+    REM_CSS_Generator::clear_css_cache($rule_data['post_id'] ?? null);
 }, 10, 2);
 
 add_action('rem_rule_deleted', function($rule_id, $rule) {
-    REM_CSS_Generator::clear_css_cache($rule->post_id);
+    REM_CSS_Generator::clear_css_cache($rule->post_id ?? null);
 }, 10, 2);

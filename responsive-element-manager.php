@@ -3,7 +3,7 @@
  * Plugin Name: Responsive Element Manager
  * Plugin URI: https://yoursite.com/plugins/responsive-element-manager
  * Description: Gestisce il comportamento responsive degli elementi del sito in tempo reale con controlli avanzati
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Your Name
  * License: GPL v2 or later
  * Text Domain: responsive-element-manager
@@ -18,14 +18,14 @@ if (!defined('ABSPATH')) {
 }
 
 // Definisce le costanti del plugin
-define('REM_VERSION', '1.2.0');
+define('REM_VERSION', '1.2.1');
 define('REM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('REM_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('REM_PLUGIN_BASENAME', plugin_basename(__FILE__));
 define('REM_DB_VERSION', '1.2');
 
 /**
- * Classe principale del plugin Responsive Element Manager - VERSIONE CORRETTA
+ * Classe principale del plugin Responsive Element Manager - VERSIONE CORRETTA CON FIX DATABASE
  */
 class ResponsiveElementManager {
     
@@ -46,6 +46,9 @@ class ResponsiveElementManager {
         // Hook di attivazione/disattivazione
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
+        
+        // Aggiungi hook per verificare database all'avvio
+        add_action('admin_init', array($this, 'check_database_integrity'));
     }
     
     /**
@@ -56,6 +59,13 @@ class ResponsiveElementManager {
         if (version_compare(PHP_VERSION, '7.4', '<')) {
             add_action('admin_notices', array($this, 'php_version_notice'));
             return;
+        }
+        
+        // Verifica che le tabelle esistano prima di procedere
+        if (!REM_Database::tables_exist()) {
+            add_action('admin_notices', array($this, 'database_missing_notice'));
+            // Tenta di ricreare le tabelle automaticamente
+            REM_Database::create_tables();
         }
         
         // Carica i moduli
@@ -71,17 +81,90 @@ class ResponsiveElementManager {
         add_action('wp_ajax_rem_save_rule', array($this, 'ajax_save_rule'));
         add_action('wp_ajax_rem_delete_rule', array($this, 'ajax_delete_rule'));
         add_action('wp_ajax_rem_get_rules', array($this, 'ajax_get_rules'));
-        add_action('wp_ajax_rem_get_css', array($this, 'ajax_get_css')); // NUOVO ENDPOINT
+        add_action('wp_ajax_rem_get_css', array($this, 'ajax_get_css'));
         add_action('wp_ajax_rem_export_rules', array($this, 'ajax_export_rules'));
         add_action('wp_ajax_rem_import_rules', array($this, 'ajax_import_rules'));
         add_action('wp_ajax_rem_get_element_info', array($this, 'ajax_get_element_info'));
-        add_action('wp_ajax_rem_test_connection', array($this, 'ajax_test_connection')); // NUOVO
+        add_action('wp_ajax_rem_test_connection', array($this, 'ajax_test_connection'));
+        add_action('wp_ajax_rem_repair_database', array($this, 'ajax_repair_database')); // NUOVO
         
         // Hook per estensioni
         do_action('rem_loaded', $this);
         
         // Verifica aggiornamenti database
         $this->check_database_updates();
+    }
+    
+    /**
+     * NUOVO: Verifica integrità database all'avvio admin
+     */
+    public function check_database_integrity() {
+        if (!REM_Database::tables_exist()) {
+            // Tenta riparazione automatica
+            REM_Database::create_tables();
+        }
+    }
+    
+    /**
+     * NUOVO: Avviso database mancante
+     */
+    public function database_missing_notice() {
+        ?>
+        <div class="notice notice-error is-dismissible">
+            <p>
+                <strong>Responsive Element Manager:</strong> 
+                Le tabelle del database non sono state trovate. 
+                <a href="#" onclick="remRepairDatabase()" class="button button-primary">Ripara Database</a>
+            </p>
+        </div>
+        <script>
+        function remRepairDatabase() {
+            fetch(ajaxurl, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: new URLSearchParams({
+                    action: 'rem_repair_database',
+                    nonce: '<?php echo wp_create_nonce('rem_repair_nonce'); ?>'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Database riparato con successo!');
+                    location.reload();
+                } else {
+                    alert('Errore nella riparazione: ' + data.data);
+                }
+            })
+            .catch(error => {
+                alert('Errore di connessione: ' + error);
+            });
+        }
+        </script>
+        <?php
+    }
+    
+    /**
+     * NUOVO: AJAX per riparare database
+     */
+    public function ajax_repair_database() {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_repair_nonce')) {
+            wp_send_json_error('Nonce non valido');
+            return;
+        }
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Permessi insufficienti');
+            return;
+        }
+        
+        REM_Database::create_tables();
+        
+        if (REM_Database::tables_exist()) {
+            wp_send_json_success('Tabelle create con successo');
+        } else {
+            wp_send_json_error('Impossibile creare le tabelle. Controlla i permessi del database.');
+        }
     }
     
     /**
@@ -144,32 +227,84 @@ class ResponsiveElementManager {
     }
     
     /**
-     * Attivazione del plugin
+     * Attivazione del plugin - VERSIONE CORRETTA CON CONTROLLI ROBUSTI
      */
     public function activate() {
-        // Crea/aggiorna tabelle database
+        // Crea/aggiorna tabelle database con controlli robusti
         REM_Database::create_tables();
-        REM_Database::upgrade_tables();
         
-        // Imposta opzioni predefinite
-        $default_settings = array(
-            'enable_frontend_editor' => true,
-            'enable_admin_bar_menu' => true,
-            'auto_save_changes' => false,
-            'load_on_all_pages' => true,
-            'minimum_user_capability' => 'edit_posts',
-            'enable_css_minification' => false,
-            'enable_backup_system' => true,
-            'max_rules_per_page' => 1000,
-            'enable_auto_proportions' => true, // NUOVO
-            'enable_position_controls' => true, // NUOVO
-            'enable_alignment_controls' => true // NUOVO
-        );
+        // Verifica multipla che le tabelle siano state create
+        $attempts = 0;
+        $max_attempts = 3;
         
-        add_option('rem_settings', $default_settings);
-        add_option('rem_version', REM_VERSION);
-        add_option('rem_db_version', REM_DB_VERSION);
-        add_option('rem_activated_at', current_time('mysql'));
+        while (!REM_Database::tables_exist() && $attempts < $max_attempts) {
+            $attempts++;
+            error_log("REM: Tentativo $attempts di creazione tabelle");
+            
+            // Prova approccio alternativo
+            global $wpdb;
+            $table_name = $wpdb->prefix . 'rem_rules';
+            
+            // Query SQL semplificata per casi problematici
+            $simple_sql = "CREATE TABLE IF NOT EXISTS $table_name (
+                id int NOT NULL AUTO_INCREMENT,
+                element_selector varchar(500) NOT NULL,
+                element_id varchar(255) DEFAULT '',
+                element_class varchar(500) DEFAULT '',
+                scope varchar(10) NOT NULL DEFAULT 'page',
+                post_id int DEFAULT 0,
+                rules longtext NOT NULL,
+                is_active tinyint(1) DEFAULT 1,
+                priority int DEFAULT 10,
+                created_at datetime DEFAULT CURRENT_TIMESTAMP,
+                updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id)
+            )";
+            
+            $wpdb->query($simple_sql);
+            sleep(1); // Piccola pausa tra i tentativi
+        }
+        
+        // Imposta opzioni predefinite solo se le tabelle esistono
+        if (REM_Database::tables_exist()) {
+            $default_settings = array(
+                'enable_frontend_editor' => true,
+                'enable_admin_bar_menu' => true,
+                'auto_save_changes' => false,
+                'load_on_all_pages' => true,
+                'minimum_user_capability' => 'edit_posts',
+                'enable_css_minification' => false,
+                'enable_backup_system' => true,
+                'max_rules_per_page' => 1000,
+                'enable_auto_proportions' => true,
+                'enable_position_controls' => true,
+                'enable_alignment_controls' => true
+            );
+            
+            add_option('rem_settings', $default_settings);
+            add_option('rem_version', REM_VERSION);
+            add_option('rem_db_version', REM_DB_VERSION);
+            add_option('rem_activated_at', current_time('mysql'));
+            add_option('rem_first_install', current_time('mysql'));
+            
+            // Pulisci eventuali errori precedenti
+            delete_option('rem_activation_error');
+            delete_option('rem_db_creation_error');
+            
+            // Log successo
+            error_log('REM: Plugin attivato con successo');
+        } else {
+            // Log errore
+            error_log('REM: ERRORE CRITICO - Impossibile creare le tabelle del database dopo ' . $max_attempts . ' tentativi');
+            
+            // Salva info per debug admin
+            update_option('rem_activation_error', array(
+                'error' => 'Impossibile creare le tabelle del database',
+                'last_db_error' => $wpdb->last_error,
+                'attempts' => $attempts,
+                'time' => current_time('mysql')
+            ));
+        }
         
         // Flush rewrite rules
         flush_rewrite_rules();
@@ -207,6 +342,11 @@ class ResponsiveElementManager {
             return;
         }
         
+        // Verifica che le tabelle esistano prima di caricare script
+        if (!REM_Database::tables_exist()) {
+            return;
+        }
+        
         wp_enqueue_script(
             'rem-frontend',
             REM_PLUGIN_URL . 'assets/js/frontend.js',
@@ -231,8 +371,9 @@ class ResponsiveElementManager {
             'settings' => $this->get_frontend_settings(),
             'breakpoints' => $this->get_breakpoints(),
             'user_preferences' => $this->get_user_preferences(),
-            'device_proportions' => $this->get_device_proportions(), // NUOVO
-            'supported_properties' => $this->get_supported_properties() // NUOVO
+            'device_proportions' => $this->get_device_proportions(),
+            'supported_properties' => $this->get_supported_properties(),
+            'database_status' => REM_Database::tables_exist() ? 'ok' : 'missing'
         ));
         
         // Hook per moduli che vogliono aggiungere script
@@ -270,7 +411,8 @@ class ResponsiveElementManager {
             'plugin_url' => REM_PLUGIN_URL,
             'modules' => $this->get_active_modules(),
             'breakpoints' => $this->get_breakpoints(),
-            'settings' => get_option('rem_settings', array())
+            'settings' => get_option('rem_settings', array()),
+            'database_status' => REM_Database::get_database_status()
         ));
         
         // Hook per moduli
@@ -365,6 +507,24 @@ class ResponsiveElementManager {
         <div class="wrap">
             <h1><?php _e('Moduli Responsive Element Manager', 'responsive-element-manager'); ?></h1>
             
+            <!-- Status Database -->
+            <div class="rem-database-status">
+                <?php $db_status = REM_Database::get_database_status(); ?>
+                <h2>Status Database</h2>
+                <p><strong>Tabelle:</strong> 
+                    <?php if ($db_status['tables_exist']): ?>
+                        <span style="color: green;">✅ Esistenti</span>
+                    <?php else: ?>
+                        <span style="color: red;">❌ Mancanti</span>
+                        <button onclick="remRepairDatabase()" class="button button-primary">Ripara Database</button>
+                    <?php endif; ?>
+                </p>
+                <?php if ($db_status['tables_exist']): ?>
+                    <p><strong>Regole:</strong> <?php echo $db_status['row_count']; ?></p>
+                    <p><strong>Dimensione:</strong> <?php echo $db_status['table_size']; ?> MB</p>
+                <?php endif; ?>
+            </div>
+            
             <div class="rem-modules-grid">
                 <?php foreach ($this->modules as $module_id => $module_data): ?>
                     <div class="rem-module-card">
@@ -385,12 +545,35 @@ class ResponsiveElementManager {
         </div>
         
         <style>
+        .rem-database-status { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
         .rem-modules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
         .rem-module-card { background: white; padding: 20px; border: 1px solid #ccd0d4; border-radius: 8px; }
         .rem-module-status { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
         .rem-module-active { background: #d4edda; color: #155724; }
         .rem-no-modules { grid-column: 1 / -1; text-align: center; padding: 40px; background: #f8f9fa; border-radius: 8px; }
         </style>
+        
+        <script>
+        function remRepairDatabase() {
+            fetch(ajaxurl, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: new URLSearchParams({
+                    action: 'rem_repair_database',
+                    nonce: '<?php echo wp_create_nonce('rem_repair_nonce'); ?>'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Database riparato con successo!');
+                    location.reload();
+                } else {
+                    alert('Errore nella riparazione: ' + data.data);
+                }
+            });
+        }
+        </script>
         <?php
     }
     
@@ -398,6 +581,11 @@ class ResponsiveElementManager {
      * Output CSS personalizzato
      */
     public function output_custom_css() {
+        // Verifica che le tabelle esistano prima di generare CSS
+        if (!REM_Database::tables_exist()) {
+            return;
+        }
+        
         $css = REM_CSS_Generator::generate_css();
         if (!empty($css)) {
             echo "<style id='rem-custom-css'>\n" . $css . "\n</style>\n";
@@ -408,7 +596,7 @@ class ResponsiveElementManager {
     }
     
     /**
-     * AJAX: Salva regola - VERSIONE CORRETTA
+     * AJAX: Salva regola - VERSIONE CORRETTA CON CONTROLLI DATABASE
      */
     public function ajax_save_rule() {
         // Verifica nonce
@@ -423,6 +611,18 @@ class ResponsiveElementManager {
         if (!current_user_can($min_capability)) {
             wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
             return;
+        }
+        
+        // NUOVO: Verifica che le tabelle esistano prima di salvare
+        if (!REM_Database::tables_exist()) {
+            // Tenta di creare le tabelle
+            REM_Database::create_tables();
+            
+            // Se ancora non esistono, ritorna errore specifico
+            if (!REM_Database::tables_exist()) {
+                wp_send_json_error(__('Errore: Tabelle database non trovate. Prova a disattivare e riattivare il plugin.', 'responsive-element-manager'));
+                return;
+            }
         }
         
         $rule_data = json_decode(stripslashes($_POST['rule_data'] ?? '{}'), true);
@@ -466,6 +666,12 @@ class ResponsiveElementManager {
             return;
         }
         
+        // Verifica tabelle
+        if (!REM_Database::tables_exist()) {
+            wp_send_json_error(__('Tabelle database non trovate', 'responsive-element-manager'));
+            return;
+        }
+        
         $rule_id = intval($_POST['rule_id'] ?? 0);
         
         if ($rule_id <= 0) {
@@ -495,6 +701,11 @@ class ResponsiveElementManager {
             return;
         }
         
+        if (!REM_Database::tables_exist()) {
+            wp_send_json_success(array()); // Ritorna array vuoto se tabelle non esistono
+            return;
+        }
+        
         $post_id = intval($_POST['post_id'] ?? 0);
         $rules = REM_Rule_Manager::get_rules($post_id);
         
@@ -502,11 +713,16 @@ class ResponsiveElementManager {
     }
     
     /**
-     * NUOVO: AJAX: Ottieni CSS generato
+     * AJAX: Ottieni CSS generato
      */
     public function ajax_get_css() {
         if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
             wp_send_json_error(__('Nonce non valido', 'responsive-element-manager'));
+            return;
+        }
+        
+        if (!REM_Database::tables_exist()) {
+            wp_send_json_success(array('css' => '', 'post_id' => 0));
             return;
         }
         
@@ -521,7 +737,7 @@ class ResponsiveElementManager {
     }
     
     /**
-     * NUOVO: AJAX: Test connessione
+     * AJAX: Test connessione
      */
     public function ajax_test_connection() {
         if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rem_nonce')) {
@@ -529,22 +745,27 @@ class ResponsiveElementManager {
             return;
         }
         
-        // Test basic della connessione
+        global $wpdb;
         $test_data = array(
             'server_time' => current_time('mysql'),
             'php_version' => PHP_VERSION,
             'wp_version' => get_bloginfo('version'),
             'plugin_version' => REM_VERSION,
             'memory_usage' => size_format(memory_get_usage()),
-            'database_connection' => true
+            'database_connection' => true,
+            'tables_status' => REM_Database::get_database_status()
         );
         
         // Test connessione database
-        global $wpdb;
         $table_name = $wpdb->prefix . 'rem_rules';
         try {
-            $count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
-            $test_data['rules_count'] = intval($count);
+            if (REM_Database::tables_exist()) {
+                $count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+                $test_data['rules_count'] = intval($count);
+            } else {
+                $test_data['rules_count'] = 0;
+                $test_data['warning'] = 'Tabelle non esistenti';
+            }
         } catch (Exception $e) {
             $test_data['database_connection'] = false;
             $test_data['database_error'] = $e->getMessage();
@@ -567,6 +788,11 @@ class ResponsiveElementManager {
             return;
         }
         
+        if (!REM_Database::tables_exist()) {
+            wp_send_json_error(__('Tabelle database non trovate', 'responsive-element-manager'));
+            return;
+        }
+        
         $format = sanitize_text_field($_POST['format'] ?? 'json');
         $scope = sanitize_text_field($_POST['scope'] ?? 'all');
         
@@ -586,6 +812,11 @@ class ResponsiveElementManager {
         
         if (!current_user_can('manage_options')) {
             wp_send_json_error(__('Permessi insufficienti', 'responsive-element-manager'));
+            return;
+        }
+        
+        if (!REM_Database::tables_exist()) {
+            wp_send_json_error(__('Tabelle database non trovate', 'responsive-element-manager'));
             return;
         }
         
@@ -694,7 +925,7 @@ class ResponsiveElementManager {
     }
     
     /**
-     * NUOVO: Ottieni proporzioni dispositivi
+     * Ottieni proporzioni dispositivi
      */
     private function get_device_proportions() {
         $default_proportions = array(
@@ -707,7 +938,7 @@ class ResponsiveElementManager {
     }
     
     /**
-     * NUOVO: Ottieni proprietà supportate
+     * Ottieni proprietà supportate
      */
     private function get_supported_properties() {
         $default_properties = array(
@@ -762,7 +993,7 @@ class ResponsiveElementManager {
     }
     
     /**
-     * NUOVO: Pulisci cache CSS
+     * Pulisci cache CSS
      */
     private function clear_css_cache() {
         // Elimina cache CSS se presente
@@ -792,17 +1023,23 @@ class ResponsiveElementManager {
 }
 
 /**
- * Classe per gestire il database - VERSIONE CORRETTA
+ * Classe per gestire il database - VERSIONE CORRETTA CON FIX
  */
 class REM_Database {
     
+    const TABLE_VERSION = '1.2';
+    
+    /**
+     * Crea le tabelle del database con controlli avanzati
+     */
     public static function create_tables() {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'rem_rules';
         $charset_collate = $wpdb->get_charset_collate();
         
-        $sql = "CREATE TABLE $table_name (
+        // SQL per creare la tabella con sintassi corretta
+        $sql = "CREATE TABLE IF NOT EXISTS $table_name (
             id mediumint(9) NOT NULL AUTO_INCREMENT,
             element_selector varchar(500) NOT NULL,
             element_id varchar(255) DEFAULT '',
@@ -817,16 +1054,96 @@ class REM_Database {
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            INDEX idx_scope_post (scope, post_id),
-            INDEX idx_selector (element_selector(255)),
-            INDEX idx_active (is_active),
-            INDEX idx_priority (priority)
+            KEY idx_scope_post (scope, post_id),
+            KEY idx_selector (element_selector(255)),
+            KEY idx_active (is_active),
+            KEY idx_priority (priority)
         ) $charset_collate;";
         
+        // Usa dbDelta per creare la tabella
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-        dbDelta($sql);
+        $result = dbDelta($sql);
+        
+        // Verifica che la tabella sia stata creata
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+            // Se dbDelta fallisce, prova con query diretta
+            $wpdb->query($sql);
+        }
+        
+        // Verifica finale
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name) {
+            update_option('rem_db_tables_created', true);
+            update_option('rem_db_table_version', self::TABLE_VERSION);
+            error_log('REM: Tabella database creata con successo');
+        } else {
+            error_log('REM: ERRORE - Impossibile creare la tabella database');
+            // Salva l'errore per il debug
+            update_option('rem_db_creation_error', $wpdb->last_error);
+        }
         
         do_action('rem_database_created');
+    }
+    
+    /**
+     * Verifica se le tabelle esistono
+     */
+    public static function tables_exist() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rem_rules';
+        return $wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name;
+    }
+    
+    /**
+     * Crea le tabelle se non esistono (metodo di ripristino)
+     */
+    public static function ensure_tables_exist() {
+        if (!self::tables_exist()) {
+            self::create_tables();
+            return self::tables_exist();
+        }
+        return true;
+    }
+    
+    /**
+     * Ripara le tabelle danneggiate
+     */
+    public static function repair_tables() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rem_rules';
+        
+        if (self::tables_exist()) {
+            $wpdb->query("REPAIR TABLE $table_name");
+            $wpdb->query("OPTIMIZE TABLE $table_name");
+        } else {
+            self::create_tables();
+        }
+    }
+    
+    /**
+     * Ottiene informazioni sullo stato del database
+     */
+    public static function get_database_status() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'rem_rules';
+        
+        $status = array(
+            'tables_exist' => self::tables_exist(),
+            'table_name' => $table_name,
+            'creation_error' => get_option('rem_db_creation_error', ''),
+            'last_check' => current_time('mysql')
+        );
+        
+        if ($status['tables_exist']) {
+            $status['row_count'] = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+            $status['table_size'] = $wpdb->get_var("
+                SELECT ROUND(((data_length + index_length) / 1024 / 1024), 2) AS 'MB'
+                FROM information_schema.TABLES 
+                WHERE table_schema = '{$wpdb->dbname}' 
+                AND table_name = '$table_name'
+            ");
+        }
+        
+        return $status;
     }
     
     public static function upgrade_tables() {
@@ -834,24 +1151,26 @@ class REM_Database {
         
         $table_name = $wpdb->prefix . 'rem_rules';
         
-        // Aggiungi colonne mancanti
-        $columns_to_add = array(
-            'is_active' => "ALTER TABLE $table_name ADD COLUMN is_active TINYINT(1) DEFAULT 1",
-            'priority' => "ALTER TABLE $table_name ADD COLUMN priority INT DEFAULT 10",
-            'conditions' => "ALTER TABLE $table_name ADD COLUMN conditions LONGTEXT DEFAULT NULL",
-            'module_data' => "ALTER TABLE $table_name ADD COLUMN module_data LONGTEXT DEFAULT NULL"
-        );
-        
-        foreach ($columns_to_add as $column => $sql) {
-            $column_exists = $wpdb->get_results(
-                $wpdb->prepare(
-                    "SHOW COLUMNS FROM $table_name LIKE %s",
-                    $column
-                )
+        // Aggiungi colonne mancanti se la tabella esiste
+        if (self::tables_exist()) {
+            $columns_to_add = array(
+                'is_active' => "ALTER TABLE $table_name ADD COLUMN is_active TINYINT(1) DEFAULT 1",
+                'priority' => "ALTER TABLE $table_name ADD COLUMN priority INT DEFAULT 10",
+                'conditions' => "ALTER TABLE $table_name ADD COLUMN conditions LONGTEXT DEFAULT NULL",
+                'module_data' => "ALTER TABLE $table_name ADD COLUMN module_data LONGTEXT DEFAULT NULL"
             );
             
-            if (empty($column_exists)) {
-                $wpdb->query($sql);
+            foreach ($columns_to_add as $column => $sql) {
+                $column_exists = $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SHOW COLUMNS FROM $table_name LIKE %s",
+                        $column
+                    )
+                );
+                
+                if (empty($column_exists)) {
+                    $wpdb->query($sql);
+                }
             }
         }
         
@@ -860,7 +1179,7 @@ class REM_Database {
 }
 
 /**
- * Classe per gestire le regole - VERSIONE CORRETTA
+ * Classe per gestire le regole - VERSIONE CORRETTA CON CONTROLLI DATABASE
  */
 class REM_Rule_Manager {
     
@@ -868,6 +1187,12 @@ class REM_Rule_Manager {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'rem_rules';
+        
+        // Verifica che la tabella esista
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+            return new WP_Error('table_missing', 
+                __('Tabella database non trovata. Disattiva e riattiva il plugin.', 'responsive-element-manager'));
+        }
         
         // Validazione dei dati
         $validated_data = self::validate_rule_data($rule_data);
@@ -883,10 +1208,19 @@ class REM_Rule_Manager {
             'post_id' => $validated_data['scope'] === 'page' ? $validated_data['post_id'] : 0,
             'rules' => json_encode($validated_data['rules']),
             'is_active' => $validated_data['is_active'] ?? 1,
-            'priority' => $validated_data['priority'] ?? 10,
-            'conditions' => !empty($validated_data['conditions']) ? json_encode($validated_data['conditions']) : null,
-            'module_data' => !empty($validated_data['module_data']) ? json_encode($validated_data['module_data']) : null
+            'priority' => $validated_data['priority'] ?? 10
         );
+        
+        // Aggiungi timestamp solo se le colonne esistono
+        $columns = $wpdb->get_results("SHOW COLUMNS FROM $table_name");
+        $column_names = array_column($columns, 'Field');
+        
+        if (in_array('conditions', $column_names)) {
+            $data['conditions'] = !empty($validated_data['conditions']) ? json_encode($validated_data['conditions']) : null;
+        }
+        if (in_array('module_data', $column_names)) {
+            $data['module_data'] = !empty($validated_data['module_data']) ? json_encode($validated_data['module_data']) : null;
+        }
         
         // Verifica se esiste già una regola per questo elemento
         $existing_rule = $wpdb->get_row($wpdb->prepare(
@@ -901,26 +1235,21 @@ class REM_Rule_Manager {
             $result = $wpdb->update(
                 $table_name,
                 $data,
-                array('id' => $existing_rule->id),
-                array('%s', '%s', '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s'),
-                array('%d')
+                array('id' => $existing_rule->id)
             );
             $rule_id = $existing_rule->id;
             $action = 'updated';
         } else {
             // Crea nuova regola
-            $result = $wpdb->insert(
-                $table_name,
-                $data,
-                array('%s', '%s', '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s')
-            );
+            $result = $wpdb->insert($table_name, $data);
             $rule_id = $wpdb->insert_id;
             $action = 'created';
         }
         
         if ($result === false) {
             error_log('REM: Database error: ' . $wpdb->last_error);
-            return new WP_Error('db_error', __('Errore nel salvare la regola: ', 'responsive-element-manager') . $wpdb->last_error);
+            return new WP_Error('db_error', 
+                __('Errore nel salvare la regola: ', 'responsive-element-manager') . $wpdb->last_error);
         }
         
         // Hook per estensioni
@@ -938,6 +1267,11 @@ class REM_Rule_Manager {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'rem_rules';
+        
+        // Verifica che la tabella esista
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+            return new WP_Error('table_missing', __('Tabella database non trovata', 'responsive-element-manager'));
+        }
         
         // Verifica che la regola esista
         $rule = $wpdb->get_row($wpdb->prepare(
@@ -972,6 +1306,11 @@ class REM_Rule_Manager {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'rem_rules';
+        
+        // Verifica che la tabella esista
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+            return array(); // Ritorna array vuoto se tabella non esiste
+        }
         
         $where_conditions = array();
         $where_values = array();
@@ -1012,6 +1351,10 @@ class REM_Rule_Manager {
         
         $table_name = $wpdb->prefix . 'rem_rules';
         
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+            return new WP_Error('table_missing', __('Tabella database non trovata', 'responsive-element-manager'));
+        }
+        
         $where_clause = '';
         if ($scope === 'site') {
             $where_clause = "WHERE scope = 'site'";
@@ -1042,6 +1385,12 @@ class REM_Rule_Manager {
     
     public static function import_rules($import_data) {
         global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'rem_rules';
+        
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+            return new WP_Error('table_missing', __('Tabella database non trovata', 'responsive-element-manager'));
+        }
         
         if (!isset($import_data['rules']) || !is_array($import_data['rules'])) {
             return new WP_Error('invalid_data', __('Dati di importazione non validi', 'responsive-element-manager'));
@@ -1111,7 +1460,28 @@ class REM_Rule_Manager {
     }
 }
 
-// Includi la classe CSS Generator corretta nel prossimo file...
+// Includi la classe CSS Generator dal file corretto se esiste
+if (file_exists(REM_PLUGIN_PATH . 'includes/class-rem-css-generator.php')) {
+    require_once REM_PLUGIN_PATH . 'includes/class-rem-css-generator.php';
+} else {
+    // CSS Generator di base se il file non esiste
+    class REM_CSS_Generator {
+        public static function generate_css($post_id = null) {
+            if (!REM_Database::tables_exist()) {
+                return '';
+            }
+            
+            $rules = REM_Rule_Manager::get_rules($post_id);
+            if (empty($rules)) {
+                return '';
+            }
+            
+            $css = '';
+            // Implementazione di base - sostituirà con il file completo
+            return $css;
+        }
+    }
+}
 
 // Inizializza il plugin
 ResponsiveElementManager::get_instance();
@@ -1131,4 +1501,12 @@ function rem_delete_rule($rule_id) {
 
 function rem_generate_css($post_id = null) {
     return REM_CSS_Generator::generate_css($post_id);
+}
+
+function rem_database_exists() {
+    return REM_Database::tables_exist();
+}
+
+function rem_repair_database() {
+    return REM_Database::create_tables();
 }
